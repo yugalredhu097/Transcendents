@@ -1,0 +1,20 @@
+{
+  "TRK-102": {
+    "disruption_type": "flood",
+    "description": "Heavy waterlogging reported on NH-60 near Kalyan",
+    "source": "mock_weather_api",
+    "confidence": 0.85,
+    "verified": true,
+    "disruption_stage": "current",
+    "predicted_delay_hours": 2.5
+  },
+  "TRK-104": {
+    "disruption_type": "protest",
+    "description": "Protest announced on NH-8 corridor near Jaipur",
+    "source": "mock_news_api",
+    "confidence": 0.8,
+    "verified": true,
+    "disruption_stage": "upcoming",
+    "predicted_delay_hours": 5.0
+  }
+}
