@@ -1,112 +1,10 @@
 """
-<<<<<<< HEAD
-Standalone test script for Fleet Monitor agent (agents/fleet_monitor.py).
-Tests contract field compliance and status determination for normal vs abnormal stoppage.
-"""
-
-import sys
-from agents.fleet_monitor import detect_disruption, STOPPED_DURATION_THRESHOLD_MINUTES
-
-REQUIRED_CONTRACT_KEYS = {
-    "truck_id",
-    "location",
-    "cargo_type",
-    "destination",
-    "deadline",
-    "status",
-    "delay_minutes",
-    "last_updated",
-}
-
-REQUIRED_LOCATION_KEYS = {"lat", "lng", "name"}
-
-
-def validate_contract_shape(result: dict):
-    """Verifies that the returned dictionary matches the exact shape of Contract 1."""
-    missing_keys = REQUIRED_CONTRACT_KEYS - set(result.keys())
-    assert not missing_keys, f"Contract validation failed: missing keys {missing_keys}"
-    
-    assert isinstance(result["truck_id"], str), "truck_id must be str"
-    assert isinstance(result["location"], dict), "location must be dict"
-    
-    missing_loc_keys = REQUIRED_LOCATION_KEYS - set(result["location"].keys())
-    assert not missing_loc_keys, f"Location structure missing keys: {missing_loc_keys}"
-    assert isinstance(result["location"]["lat"], (int, float)), "lat must be float/int"
-    assert isinstance(result["location"]["lng"], (int, float)), "lng must be float/int"
-    assert isinstance(result["location"]["name"], str), "name must be str"
-    
-    assert isinstance(result["cargo_type"], str), "cargo_type must be str"
-    assert isinstance(result["destination"], str), "destination must be str"
-    assert isinstance(result["deadline"], str), "deadline must be str"
-    assert result["status"] in ("normal", "abnormal_stop"), f"Invalid status: {result['status']}"
-    assert isinstance(result["delay_minutes"], int), "delay_minutes must be int"
-    assert isinstance(result["last_updated"], str), "last_updated must be str"
-
-
-def test_normal_telemetry():
-    raw_telemetry = {
-        "truck_id": "TRK-104",
-        "location": {"lat": 19.076, "lng": 72.877, "name": "near Kalyan, MH"},
-        "cargo_type": "perishable_produce",
-        "destination": "Pune",
-        "deadline": "2026-08-10T18:00:00",
-        "stopped_duration_minutes": 10,  # Below threshold of 30 mins
-        "delay_minutes": 0,
-        "last_updated": "2026-08-08T14:22:00",
-    }
-    
-    result = detect_disruption(raw_telemetry)
-    validate_contract_shape(result)
-    assert result["status"] == "normal", f"Expected 'normal', got '{result['status']}'"
-    assert result["truck_id"] == "TRK-104"
-    assert result["delay_minutes"] == 0
-    
-    print("=== Test Case 1: Normal Telemetry ===")
-    print(f"Status: {result['status']}")
-    print(f"Delay (mins): {result['delay_minutes']}")
-    print("Contract match: PASSED\n")
-
-
-def test_abnormal_stop_telemetry():
-    raw_telemetry = {
-        "truck_id": "TRK-105",
-        "location": {"lat": 19.218, "lng": 73.102, "name": "NH-48 near Thane, MH"},
-        "cargo_type": "pharmaceuticals",
-        "destination": "Nashik",
-        "deadline": "2026-08-11T12:00:00",
-        "stopped_duration_minutes": 45,  # Exceeds threshold of 30 mins
-        "delay_minutes": 45,
-        "last_updated": "2026-08-08T14:30:00",
-    }
-    
-    result = detect_disruption(raw_telemetry)
-    validate_contract_shape(result)
-    assert result["status"] == "abnormal_stop", f"Expected 'abnormal_stop', got '{result['status']}'"
-    assert result["truck_id"] == "TRK-105"
-    assert result["delay_minutes"] == 45
-    
-    print("=== Test Case 2: Abnormal Stop Telemetry ===")
-    print(f"Status: {result['status']}")
-    print(f"Delay (mins): {result['delay_minutes']}")
-    print("Contract match: PASSED\n")
-
-
-def run_all_tests():
-    print(f"Running Fleet Monitor Agent Tests (Threshold: {STOPPED_DURATION_THRESHOLD_MINUTES} mins)...\n")
-    test_normal_telemetry()
-    test_abnormal_stop_telemetry()
-    print("All fleet monitor contract tests passed!")
-
-
-if __name__ == "__main__":
-    run_all_tests()
-=======
 Standalone test script for Fleet Monitor Agent (agents/fleet_monitor.py)
 """
 
 import json
 import sys
-from agents.fleet_monitor import detect_disruption
+from agents.fleet_monitor import detect_disruption, STOPPED_DURATION_THRESHOLD_MINUTES
 
 # Define required contract keys and expected types
 REQUIRED_CONTRACT = {
@@ -145,59 +43,58 @@ def validate_contract(output: dict) -> None:
 
 def main():
     print("==================================================")
-    print(" Testing Fleet Monitor Agent: detect_disruption() ")
+    print(f" Testing Fleet Monitor Agent (Threshold: {STOPPED_DURATION_THRESHOLD_MINUTES} mins) ")
     print("==================================================\n")
 
-    # Mock inputs
     sample_inputs = [
         {
             "truck_id": "TRK-104",
-            "lat": 19.076,
-            "lng": 72.877,
-            "location_name": "near Kalyan, MH",
+            "location": {"lat": 19.076, "lng": 72.877, "name": "near Kalyan, MH"},
             "cargo_type": "perishable_produce",
             "destination": "Pune",
             "deadline": "2026-08-10T18:00:00",
-            "speed_kmh": 0,
-            "stop_duration_minutes": 47,
+            "stopped_duration_minutes": 10,  # <= 30 mins -> normal
+            "delay_minutes": 0,
             "last_updated": "2026-08-08T14:22:00"
+        },
+        {
+            "truck_id": "TRK-105",
+            "lat": 19.218,
+            "lng": 73.102,
+            "location_name": "NH-48 near Thane, MH",
+            "cargo_type": "pharmaceuticals",
+            "destination": "Nashik",
+            "deadline": "2026-08-11T12:00:00",
+            "stop_duration_minutes": 45,  # > 30 mins -> abnormal_stop
+            "last_updated": "2026-08-08T14:30:00"
         },
         {
             "truck_id": "TRK-201",
             "lat": 18.989,
             "lng": 73.117,
             "location_name": "Panvel Expressway, MH",
-            "cargo_type": "pharmaceuticals",
+            "cargo_type": "electronics",
             "destination": "Satara",
             "deadline": "2026-08-11T12:00:00",
-            "speed_kmh": 65,
-            "stop_duration_minutes": 0,
+            "stop_duration_minutes": 0,  # <= 30 mins -> normal
             "last_updated": "2026-08-08T14:25:00"
-        },
-        {
-            "truck_id": "TRK-305",
-            "lat": 18.755,
-            "lng": 73.409,
-            "location_name": "near Lonavala, MH",
-            "cargo_type": "industrial_machinery",
-            "destination": "Solapur",
-            "deadline": "2026-08-12T09:00:00",
-            "speed_kmh": 5,
-            "stop_duration_minutes": 35,
-            "last_updated": "2026-08-08T14:20:00"
         }
     ]
 
-    for idx, raw in enumerate(sample_inputs, 1):
+    expected_statuses = ["normal", "abnormal_stop", "normal"]
+
+    for idx, (raw, exp_status) in enumerate(zip(sample_inputs, expected_statuses), 1):
         print(f"--- Mock Input {idx} (Truck: {raw['truck_id']}) ---")
         result = detect_disruption(raw)
         validate_contract(result)
+        assert result["status"] == exp_status, (
+            f"Test {idx} failed: expected status '{exp_status}', got '{result['status']}'"
+        )
         print(json.dumps(result, indent=2))
-        print()
+        print(f"Result: PASSED (status: {result['status']})\n")
 
     print("SUCCESS: All outputs matched contract schema field for field!")
 
 
 if __name__ == "__main__":
     main()
->>>>>>> 4f189625416b9014224ee9dfa47e11e1232dc450
