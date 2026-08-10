@@ -1,0 +1,38 @@
+[
+  {
+    "truck_id": "TRK-104",
+    "lat": 19.076,
+    "lng": 72.877,
+    "location_name": "near Kalyan, MH",
+    "cargo_type": "perishable_produce",
+    "destination": "Pune",
+    "deadline": "2026-08-10T18:00:00",
+    "speed_kmh": 0,
+    "stop_duration_minutes": 47,
+    "last_updated": "2026-08-08T14:22:00"
+  },
+  {
+    "truck_id": "TRK-201",
+    "lat": 18.989,
+    "lng": 73.117,
+    "location_name": "Panvel Expressway, MH",
+    "cargo_type": "pharmaceuticals",
+    "destination": "Satara",
+    "deadline": "2026-08-11T12:00:00",
+    "speed_kmh": 65,
+    "stop_duration_minutes": 0,
+    "last_updated": "2026-08-08T14:25:00"
+  },
+  {
+    "truck_id": "TRK-305",
+    "lat": 18.755,
+    "lng": 73.409,
+    "location_name": "near Lonavala, MH",
+    "cargo_type": "industrial_machinery",
+    "destination": "Solapur",
+    "deadline": "2026-08-12T09:00:00",
+    "speed_kmh": 5,
+    "stop_duration_minutes": 35,
+    "last_updated": "2026-08-08T14:20:00"
+  }
+]
