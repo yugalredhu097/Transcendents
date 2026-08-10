@@ -1,5 +1,5 @@
 """
-Standalone test script for Fleet Monitor Agent (agents/fleet_monitor.py) - Round 2.
+Standalone test script for Fleet Monitor Agent (agents/fleet_monitor.py) - Demo Data Alignment.
 Loads mock fleet telemetry from data/mock_fleet.json and validates Contract 1 output schema.
 """
 
@@ -28,9 +28,12 @@ LOCATION_CONTRACT = {
 
 # Expected status mapping by truck ID for demo scenarios
 EXPECTED_SCENARIOS = {
-    "TRK-201": {"expected_status": "normal", "description": "Scenario 1: Normal Truck"},
-    "TRK-105": {"expected_status": "abnormal_stop", "description": "Scenario 2: Abnormal Stopped Truck"},
-    "TRK-104": {"expected_status": "normal", "description": "Scenario 3: Proactive Risk Zone Truck"}
+    "T107": {"expected_status": "abnormal_stop", "description": "Scenario 1: Reactive Abnormal Stop (Jaipur -> Mumbai)"},
+    "T112": {"expected_status": "normal", "description": "Scenario 2: Proactive Risk Zone (Delhi -> Jaipur)"},
+    "T101": {"expected_status": "normal", "description": "Scenario 3: Fully Clean Truck (Mumbai -> Pune)"},
+    "TRK-107": {"expected_status": "abnormal_stop", "description": "Scenario 1: Reactive Abnormal Stop (Alias)"},
+    "TRK-112": {"expected_status": "normal", "description": "Scenario 2: Proactive Risk Zone (Alias)"},
+    "TRK-101": {"expected_status": "normal", "description": "Scenario 3: Fully Clean Truck (Alias)"}
 }
 
 
@@ -84,7 +87,7 @@ def main():
         print(f"Status: {result['status']} | Delay: {result['delay_minutes']} mins")
         print("Contract match: PASSED")
 
-    print("\nSUCCESS: All 3 mock fleet records passed Contract 1 validation!")
+    print("\nSUCCESS: All mock fleet records passed Contract 1 validation!")
 
 
 if __name__ == "__main__":
