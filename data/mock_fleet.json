@@ -1,18 +1,11 @@
 [
   {
-    "truck_id": "TRK-104",
-    "lat": 19.076,
-    "lng": 72.877,
-    "location_name": "near Kalyan, MH",
-    "cargo_type": "perishable_produce",
-    "destination": "Pune",
-    "deadline": "2026-08-10T18:00:00",
-    "speed_kmh": 0,
-    "stop_duration_minutes": 47,
-    "last_updated": "2026-08-08T14:22:00"
-  },
-  {
     "truck_id": "TRK-201",
+    "location": {
+      "lat": 18.989,
+      "lng": 73.117,
+      "name": "Panvel Expressway, MH"
+    },
     "lat": 18.989,
     "lng": 73.117,
     "location_name": "Panvel Expressway, MH",
@@ -20,19 +13,47 @@
     "destination": "Satara",
     "deadline": "2026-08-11T12:00:00",
     "speed_kmh": 65,
+    "stopped_duration_minutes": 0,
     "stop_duration_minutes": 0,
+    "delay_minutes": 0,
     "last_updated": "2026-08-08T14:25:00"
   },
   {
-    "truck_id": "TRK-305",
-    "lat": 18.755,
-    "lng": 73.409,
-    "location_name": "near Lonavala, MH",
-    "cargo_type": "industrial_machinery",
-    "destination": "Solapur",
-    "deadline": "2026-08-12T09:00:00",
-    "speed_kmh": 5,
-    "stop_duration_minutes": 35,
-    "last_updated": "2026-08-08T14:20:00"
+    "truck_id": "TRK-105",
+    "location": {
+      "lat": 19.218,
+      "lng": 73.102,
+      "name": "NH-48 near Thane, MH"
+    },
+    "lat": 19.218,
+    "lng": 73.102,
+    "location_name": "NH-48 near Thane, MH",
+    "cargo_type": "electronics",
+    "destination": "Delhi",
+    "deadline": "2026-08-11T12:00:00",
+    "speed_kmh": 0,
+    "stopped_duration_minutes": 45,
+    "stop_duration_minutes": 45,
+    "delay_minutes": 45,
+    "last_updated": "2026-08-10T16:00:00"
+  },
+  {
+    "truck_id": "TRK-104",
+    "location": {
+      "lat": 19.076,
+      "lng": 72.877,
+      "name": "near Kalyan, MH"
+    },
+    "lat": 19.076,
+    "lng": 72.877,
+    "location_name": "near Kalyan, MH",
+    "cargo_type": "perishable_produce",
+    "destination": "Pune",
+    "deadline": "2026-08-10T18:00:00",
+    "speed_kmh": 65,
+    "stopped_duration_minutes": 0,
+    "stop_duration_minutes": 0,
+    "delay_minutes": 0,
+    "last_updated": "2026-08-08T14:22:00"
   }
 ]
