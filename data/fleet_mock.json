@@ -1,0 +1,30 @@
+[
+  {
+    "truck_id": "TRK-104",
+    "location": {
+      "lat": 19.076,
+      "lng": 72.877,
+      "name": "near Kalyan, MH"
+    },
+    "cargo_type": "perishable_produce",
+    "destination": "Pune",
+    "deadline": "2026-08-10T18:00:00",
+    "stopped_duration_minutes": 10,
+    "delay_minutes": 0,
+    "last_updated": "2026-08-08T14:22:00"
+  },
+  {
+    "truck_id": "TRK-105",
+    "location": {
+      "lat": 19.218,
+      "lng": 73.102,
+      "name": "NH-48 near Thane, MH"
+    },
+    "cargo_type": "pharmaceuticals",
+    "destination": "Nashik",
+    "deadline": "2026-08-11T12:00:00",
+    "stopped_duration_minutes": 45,
+    "delay_minutes": 45,
+    "last_updated": "2026-08-08T14:30:00"
+  }
+]
