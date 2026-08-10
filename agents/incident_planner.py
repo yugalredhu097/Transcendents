@@ -4,7 +4,41 @@ Responsible for analyzing escalation events from the Dispatch Gate (Contract 3)
 and generating actionable incident response plans (Contract 4).
 """
 
-from typing import Dict, Any
+import json
+import urllib.request
+from typing import Dict, Any, Optional, Tuple
+
+
+def fetch_osrm_route(
+    start_coords: Tuple[float, float] = (72.8777, 19.0760),
+    end_coords: Tuple[float, float] = (73.8567, 18.5204),
+    timeout: float = 3.0,
+) -> Optional[Dict[str, float]]:
+    """
+    Fetches route distance (km) and duration (min) from public OSRM server.
+    Coordinates format: (longitude, latitude).
+    Returns dict with 'distance_km' and 'duration_min', or None on network failure / timeout.
+    """
+    start_lng, start_lat = start_coords
+    end_lng, end_lat = end_coords
+    url = (
+        f"http://router.project-osrm.org/route/v1/driving/"
+        f"{start_lng},{start_lat};{end_lng},{end_lat}?overview=false"
+    )
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "IncidentPlanner/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode("utf-8"))
+                if data.get("code") == "Ok" and data.get("routes"):
+                    route = data["routes"][0]
+                    dist_km = round(route["distance"] / 1000.0, 1)
+                    dur_min = round(route["duration"] / 60.0, 1)
+                    return {"distance_km": dist_km, "duration_min": dur_min}
+    except Exception:
+        pass
+    return None
 
 
 def calculate_route_cost_impact(
@@ -51,6 +85,25 @@ def generate_plan(dispatch_data: Dict[str, Any]) -> Dict[str, Any]:
     fleet_output = dispatch_data.get("fleet_output") or {}
     threat_output = dispatch_data.get("threat_output") or {}
 
+    # Extract start and end coordinates if provided, else default coordinates (Mumbai -> Pune)
+    start_coords = (
+        dispatch_data.get("start_coords")
+        or fleet_output.get("start_coords")
+        or threat_output.get("start_coords")
+        or (72.8777, 19.0760)
+    )
+    end_coords = (
+        dispatch_data.get("end_coords")
+        or fleet_output.get("end_coords")
+        or threat_output.get("end_coords")
+        or (73.8567, 18.5204)
+    )
+
+    # Attempt OSRM call unless explicitly disabled
+    osrm_data = None
+    if dispatch_data.get("use_osrm", True):
+        osrm_data = fetch_osrm_route(start_coords, end_coords)
+
     # Identify primary cause of escalation (Threat Intel vs Fleet Stoppage)
     is_threat = (
         "threat" in reason
@@ -61,9 +114,15 @@ def generate_plan(dispatch_data: Dict[str, Any]) -> Dict[str, Any]:
     if is_threat:
         threat_type = threat_output.get("threat_type", "Road disruption")
         eta_threat_hours = threat_output.get("estimated_arrival_hours", 2.0)
-        distance_km = float(threat_output.get("suggested_detour_km", 62))
-        duration_min = float(threat_output.get("suggested_detour_min", 95))
         deadline_hours = float(fleet_output.get("deadline_hours_remaining", 4.0))
+
+        if osrm_data is not None:
+            distance_km = float(osrm_data["distance_km"])
+            duration_min = float(osrm_data["duration_min"])
+        else:
+            # Fallback to payload suggested detour figures or defaults
+            distance_km = float(threat_output.get("suggested_detour_km", 62))
+            duration_min = float(threat_output.get("suggested_detour_min", 95))
 
         estimated_delay_hours = round(duration_min / 60.0, 1)
         estimated_cost = calculate_route_cost_impact(
@@ -86,8 +145,13 @@ def generate_plan(dispatch_data: Dict[str, Any]) -> Dict[str, Any]:
         location = fleet_output.get("location", "Highway Segment")
         deadline_hours = float(fleet_output.get("deadline_hours_remaining", 4.0))
 
-        distance_km = float(fleet_output.get("detour_distance_km", 45))
-        duration_min = float(fleet_output.get("detour_duration_min", 75))
+        if osrm_data is not None:
+            distance_km = float(osrm_data["distance_km"])
+            duration_min = float(osrm_data["duration_min"])
+        else:
+            # Fallback to payload detour figures or defaults
+            distance_km = float(fleet_output.get("detour_distance_km", 45))
+            duration_min = float(fleet_output.get("detour_duration_min", 75))
 
         estimated_delay_hours = round((stoppage_duration + duration_min) / 60.0, 1)
         base_cost = calculate_route_cost_impact(distance_km=distance_km, duration_min=duration_min)
@@ -113,3 +177,4 @@ def generate_plan(dispatch_data: Dict[str, Any]) -> Dict[str, Any]:
             "duration_min": int(duration_min) if duration_min.is_integer() else duration_min,
         },
     }
+

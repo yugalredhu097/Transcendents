@@ -1,8 +1,10 @@
 """
-Standalone test script for Fleet Monitor Agent (agents/fleet_monitor.py)
+Standalone test script for Fleet Monitor Agent (agents/fleet_monitor.py) - Round 2.
+Loads mock fleet telemetry from data/mock_fleet.json and validates Contract 1 output schema.
 """
 
 import json
+import os
 import sys
 from agents.fleet_monitor import detect_disruption, STOPPED_DURATION_THRESHOLD_MINUTES
 
@@ -24,9 +26,16 @@ LOCATION_CONTRACT = {
     "name": str
 }
 
+# Expected status mapping by truck ID for demo scenarios
+EXPECTED_SCENARIOS = {
+    "TRK-201": {"expected_status": "normal", "description": "Scenario 1: Normal Truck"},
+    "TRK-105": {"expected_status": "abnormal_stop", "description": "Scenario 2: Abnormal Stopped Truck"},
+    "TRK-104": {"expected_status": "normal", "description": "Scenario 3: Proactive Risk Zone Truck"}
+}
+
 
 def validate_contract(output: dict) -> None:
-    """Verifies that the output dictionary matches the exact contract schema."""
+    """Verifies that the output dictionary matches the exact Contract 1 schema."""
     for key, expected_type in REQUIRED_CONTRACT.items():
         assert key in output, f"Missing required key in contract: {key}"
         assert isinstance(output[key], expected_type), (
@@ -46,54 +55,36 @@ def main():
     print(f" Testing Fleet Monitor Agent (Threshold: {STOPPED_DURATION_THRESHOLD_MINUTES} mins) ")
     print("==================================================\n")
 
-    sample_inputs = [
-        {
-            "truck_id": "TRK-104",
-            "location": {"lat": 19.076, "lng": 72.877, "name": "near Kalyan, MH"},
-            "cargo_type": "perishable_produce",
-            "destination": "Pune",
-            "deadline": "2026-08-10T18:00:00",
-            "stopped_duration_minutes": 10,  # <= 30 mins -> normal
-            "delay_minutes": 0,
-            "last_updated": "2026-08-08T14:22:00"
-        },
-        {
-            "truck_id": "TRK-105",
-            "lat": 19.218,
-            "lng": 73.102,
-            "location_name": "NH-48 near Thane, MH",
-            "cargo_type": "pharmaceuticals",
-            "destination": "Nashik",
-            "deadline": "2026-08-11T12:00:00",
-            "stop_duration_minutes": 45,  # > 30 mins -> abnormal_stop
-            "last_updated": "2026-08-08T14:30:00"
-        },
-        {
-            "truck_id": "TRK-201",
-            "lat": 18.989,
-            "lng": 73.117,
-            "location_name": "Panvel Expressway, MH",
-            "cargo_type": "electronics",
-            "destination": "Satara",
-            "deadline": "2026-08-11T12:00:00",
-            "stop_duration_minutes": 0,  # <= 30 mins -> normal
-            "last_updated": "2026-08-08T14:25:00"
-        }
-    ]
+    json_path = os.path.join("data", "mock_fleet.json")
+    print(f"Loading dataset from {json_path}...")
+    
+    assert os.path.exists(json_path), f"File not found: {json_path}"
+    with open(json_path, "r", encoding="utf-8") as f:
+        fleet_data = json.load(f)
 
-    expected_statuses = ["normal", "abnormal_stop", "normal"]
+    assert len(fleet_data) >= 3, f"Expected at least 3 mock records, found {len(fleet_data)}"
 
-    for idx, (raw, exp_status) in enumerate(zip(sample_inputs, expected_statuses), 1):
-        print(f"--- Mock Input {idx} (Truck: {raw['truck_id']}) ---")
+    for raw in fleet_data:
+        truck_id = raw.get("truck_id", "UNKNOWN")
+        scenario = EXPECTED_SCENARIOS.get(
+            truck_id,
+            {"expected_status": "normal", "description": f"Truck {truck_id}"}
+        )
+        
+        print(f"\n--- Truck {truck_id} ({scenario['description']}) ---")
         result = detect_disruption(raw)
         validate_contract(result)
-        assert result["status"] == exp_status, (
-            f"Test {idx} failed: expected status '{exp_status}', got '{result['status']}'"
-        )
-        print(json.dumps(result, indent=2))
-        print(f"Result: PASSED (status: {result['status']})\n")
 
-    print("SUCCESS: All outputs matched contract schema field for field!")
+        exp_status = scenario["expected_status"]
+        assert result["status"] == exp_status, (
+            f"Test failed for {truck_id}: expected status '{exp_status}', got '{result['status']}'"
+        )
+
+        print(json.dumps(result, indent=2))
+        print(f"Status: {result['status']} | Delay: {result['delay_minutes']} mins")
+        print("Contract match: PASSED")
+
+    print("\nSUCCESS: All 3 mock fleet records passed Contract 1 validation!")
 
 
 if __name__ == "__main__":
