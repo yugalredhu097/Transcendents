@@ -58,7 +58,13 @@ def run_pipeline(selected_truck: Dict[str, Any]) -> Dict[str, Any]:
 
     # Step 4 & 5: Incident Planner & Risk Critic (if escalated)
     if dispatch_output.get("escalate", False):
+        fleet_info = dispatch_output.get("fleet_output") or {}
+        threat_info = dispatch_output.get("threat_output") or {}
+
         plan_data = generate_plan(dispatch_output)
+        plan_data.setdefault("cargo_type", fleet_info.get("cargo_type"))
+        plan_data.setdefault("disruption_type", threat_info.get("disruption_type"))
+
         risk_output = evaluate_risk(plan_data)
 
         # Re-Plan Loop: If Risk Critic rejects, attempt 1 re-plan cycle
@@ -83,7 +89,11 @@ def run_pipeline(selected_truck: Dict[str, Any]) -> Dict[str, Any]:
             replan_dispatch["fleet_output"] = fleet_copy
 
             plan_data = generate_plan(replan_dispatch)
+            plan_data.setdefault("cargo_type", fleet_info.get("cargo_type"))
+            plan_data.setdefault("disruption_type", threat_info.get("disruption_type"))
+
             risk_output = evaluate_risk(plan_data)
+
 
     return {
         "truck_id": truck_id,
