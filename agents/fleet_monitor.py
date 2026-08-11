@@ -1,75 +1,148 @@
 """
 Fleet Monitor Agent (P1 - Yugal)
 
-Monitors raw fleet telemetry data and detects abnormal stops or delays.
-Converts raw telemetry into a standardized incident disruption payload contract.
+Monitors raw fleet telemetry data and detects abnormal stops or operational anomalies.
+Converts raw telemetry into a standardized incident disruption payload contract (Contract 1).
+Deterministic analysis engine (sensor module).
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
-# Named constant threshold for stopped duration (in minutes)
-STOPPED_DURATION_THRESHOLD_MINUTES = 30
+# Named Constants & Operational Configuration Thresholds
+STOPPED_DURATION_THRESHOLD_MINUTES: int = 30
+
+# Default Fallback Values
+DEFAULT_TRUCK_ID: str = "UNKNOWN"
+DEFAULT_CARGO_TYPE: str = "general_cargo"
+DEFAULT_DESTINATION: str = "Unknown Destination"
+DEFAULT_LOCATION_NAME: str = "Unknown Location"
+
+# Geographic Validation Bounds
+MIN_LATITUDE: float = -90.0
+MAX_LATITUDE: float = 90.0
+MIN_LONGITUDE: float = -180.0
+MAX_LONGITUDE: float = 180.0
 
 
-def detect_disruption(raw_telemetry: Dict[str, Any]) -> Dict[str, Any]:
+def _sanitize_string(val: Any, default_str: str) -> str:
+    """Safely extracts a non-empty string value."""
+    if val is None:
+        return default_str
+    s_val = str(val).strip()
+    return s_val if s_val else default_str
+
+
+def _sanitize_float(val: Any, default_val: float = 0.0) -> float:
+    """Safely parses float values without throwing ValueError or TypeError."""
+    if val is None:
+        return default_val
+    try:
+        f_val = float(val)
+        return f_val
+    except (ValueError, TypeError):
+        return default_val
+
+
+def _sanitize_non_negative_int(val: Any, default_val: int = 0) -> int:
+    """Safely parses integer values and clamps negative inputs to 0."""
+    if val is None:
+        return default_val
+    try:
+        i_val = int(float(val))
+        return max(0, i_val)
+    except (ValueError, TypeError):
+        return default_val
+
+
+def _sanitize_location(location_input: Any, raw_telemetry: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Analyzes raw telemetry data for a truck and detects potential disruptions.
+    Validates and sanitizes location telemetry data.
+    Supports both nested location objects and legacy flat key fields.
+    Validates latitude and longitude within physical global boundaries.
+    """
+    if isinstance(location_input, dict):
+        raw_lat = location_input.get("lat")
+        raw_lng = location_input.get("lng")
+        raw_name = location_input.get("name")
+    else:
+        raw_lat = raw_telemetry.get("lat")
+        raw_lng = raw_telemetry.get("lng")
+        raw_name = raw_telemetry.get("location_name", raw_telemetry.get("name"))
+
+    lat = _sanitize_float(raw_lat, 0.0)
+    lng = _sanitize_float(raw_lng, 0.0)
+    name = _sanitize_string(raw_name, DEFAULT_LOCATION_NAME)
+
+    # Bound check latitude and longitude
+    if not (MIN_LATITUDE <= lat <= MAX_LATITUDE):
+        lat = 0.0
+    if not (MIN_LONGITUDE <= lng <= MAX_LONGITUDE):
+        lng = 0.0
+
+    return {
+        "lat": lat,
+        "lng": lng,
+        "name": name
+    }
+
+
+def detect_disruption(raw_telemetry: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Analyzes raw vehicle telemetry data and detects abnormal stoppage disruptions.
 
     Args:
-        raw_telemetry (dict): Raw telemetry data containing truck info, position, 
+        raw_telemetry (dict): Raw telemetry payload containing truck info, position,
                               speed, stop duration, cargo details, and timestamps.
 
     Returns:
-        dict: Standardized disruption payload matching contract:
+        dict: Standardized Contract 1 disruption payload:
             {
                 "truck_id": str,
                 "location": {"lat": float, "lng": float, "name": str},
                 "cargo_type": str,
                 "destination": str,
                 "deadline": str,
-                "status": str,
+                "status": str,  # "abnormal_stop" or "normal"
                 "delay_minutes": int,
                 "last_updated": str
             }
     """
-    # Extract location parameters (supports nested or flat key structures)
-    location_info = raw_telemetry.get("location")
-    if isinstance(location_info, dict):
-        lat = location_info.get("lat", 0.0)
-        lng = location_info.get("lng", 0.0)
-        name = location_info.get("name", "Unknown Location")
-    else:
-        lat = raw_telemetry.get("lat", 0.0)
-        lng = raw_telemetry.get("lng", 0.0)
-        name = raw_telemetry.get("location_name", raw_telemetry.get("name", "Unknown Location"))
+    if not isinstance(raw_telemetry, dict):
+        raw_telemetry = {}
 
-    location = {
-        "lat": float(lat),
-        "lng": float(lng),
-        "name": str(name)
-    }
+    # Extract & sanitize core telemetry parameters
+    truck_id = _sanitize_string(raw_telemetry.get("truck_id"), DEFAULT_TRUCK_ID)
+    cargo_type = _sanitize_string(raw_telemetry.get("cargo_type"), DEFAULT_CARGO_TYPE)
+    destination = _sanitize_string(raw_telemetry.get("destination"), DEFAULT_DESTINATION)
+    deadline = _sanitize_string(raw_telemetry.get("deadline", raw_telemetry.get("delivery_deadline")), "")
+    last_updated = _sanitize_string(raw_telemetry.get("last_updated", raw_telemetry.get("timestamp")), "")
 
-    # Extract stopped duration (supports various key names)
-    stop_duration = raw_telemetry.get(
+    location = _sanitize_location(raw_telemetry.get("location"), raw_telemetry)
+
+    # Extract & sanitize stop duration
+    raw_stop_duration = raw_telemetry.get(
         "stopped_duration_minutes",
         raw_telemetry.get("stop_duration_minutes", raw_telemetry.get("stopped_duration", 0))
     )
+    stop_duration = _sanitize_non_negative_int(raw_stop_duration, 0)
+    delay_minutes = _sanitize_non_negative_int(raw_telemetry.get("delay_minutes", stop_duration), stop_duration)
 
-    # Determine status: "abnormal_stop" if stopped-duration exceeds threshold, otherwise "normal"
-    if stop_duration > STOPPED_DURATION_THRESHOLD_MINUTES:
+    # Status evaluation logic
+    raw_status = _sanitize_string(raw_telemetry.get("status"), "").lower()
+    if raw_status == "abnormal_stop":
+        status = "abnormal_stop"
+    elif stop_duration > STOPPED_DURATION_THRESHOLD_MINUTES:
         status = "abnormal_stop"
     else:
         status = "normal"
 
-    delay_minutes = int(raw_telemetry.get("delay_minutes", stop_duration))
-
     return {
-        "truck_id": raw_telemetry.get("truck_id", "UNKNOWN"),
+        "truck_id": truck_id,
         "location": location,
-        "cargo_type": raw_telemetry.get("cargo_type", "general_cargo"),
-        "destination": raw_telemetry.get("destination", "Unknown Destination"),
-        "deadline": raw_telemetry.get("deadline", ""),
+        "cargo_type": cargo_type,
+        "destination": destination,
+        "deadline": deadline,
         "status": status,
         "delay_minutes": delay_minutes,
-        "last_updated": raw_telemetry.get("last_updated", raw_telemetry.get("timestamp", ""))
+        "last_updated": last_updated
     }
