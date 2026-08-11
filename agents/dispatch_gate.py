@@ -1,10 +1,48 @@
 """
-Dispatch Gate Integration Point (P4: Shivansh)
-Determines whether a shipment disruption requires escalation to incident planning based on Fleet Monitor status and Threat Intel verification.
+Dispatch Gate Orchestration Module (Agent 3 - Escalation Gate)
+
+Determines whether a shipment disruption requires escalation to incident planning based on 
+Fleet Monitor telemetry status and Threat Intelligence verification.
+
+This component is purely deterministic. No AI/LLM models are integrated here.
 """
 
+from typing import Dict, Any, Tuple
 
-def should_escalate(fleet_output: dict, threat_output: dict) -> dict:
+
+def _eval_fleet_trigger(fleet_output: Dict[str, Any]) -> bool:
+    """Evaluates whether fleet monitor telemetry requires escalation."""
+    if not isinstance(fleet_output, dict):
+        return False
+    fleet_status = str(fleet_output.get("status", "")).strip().lower()
+    return fleet_status == "abnormal_stop"
+
+
+def _eval_threat_trigger(threat_output: Dict[str, Any]) -> Tuple[bool, str]:
+    """Evaluates whether threat intelligence findings require escalation."""
+    if not isinstance(threat_output, dict):
+        return False, "none"
+    
+    verified = bool(threat_output.get("verified", False))
+    disruption_stage = str(threat_output.get("disruption_stage", "")).strip().lower()
+    
+    is_escalate = verified and (disruption_stage in ["current", "upcoming"])
+    return is_escalate, disruption_stage
+
+
+def _determine_reason(fleet_escalate: bool, threat_escalate: bool, disruption_stage: str) -> str:
+    """Determines the standardized escalation reason string."""
+    if fleet_escalate and threat_escalate:
+        return f"abnormal_stop_and_threat_{disruption_stage}"
+    elif fleet_escalate:
+        return "abnormal_stop"
+    elif threat_escalate:
+        return f"threat_{disruption_stage}"
+    else:
+        return "no_disruption"
+
+
+def should_escalate(fleet_output: Dict[str, Any], threat_output: Dict[str, Any]) -> Dict[str, Any]:
     """
     Evaluates Fleet Monitor output and Threat Intel output to decide if escalation is required.
 
@@ -41,32 +79,26 @@ def should_escalate(fleet_output: dict, threat_output: dict) -> dict:
       "threat_output": { ... passthrough ... }
     }
     """
-    truck_id = fleet_output.get("truck_id") or threat_output.get("truck_id", "")
+    fleet_dict = fleet_output if isinstance(fleet_output, dict) else {}
+    threat_dict = threat_output if isinstance(threat_output, dict) else {}
 
-    fleet_status = str(fleet_output.get("status", "")).lower()
-    threat_verified = bool(threat_output.get("verified", False))
-    disruption_stage = str(threat_output.get("disruption_stage", "")).lower()
+    truck_id = str(
+        fleet_dict.get("truck_id")
+        or threat_dict.get("truck_id")
+        or "UNKNOWN"
+    )
 
-    # Rule checks
-    fleet_escalate = (fleet_status == "abnormal_stop")
-    threat_escalate = threat_verified and (disruption_stage in ["current", "upcoming"])
+    fleet_escalate = _eval_fleet_trigger(fleet_dict)
+    threat_escalate, disruption_stage = _eval_threat_trigger(threat_dict)
 
     escalate = fleet_escalate or threat_escalate
-
-    # Determine reason string
-    if fleet_escalate and threat_escalate:
-        reason = f"abnormal_stop_and_threat_{disruption_stage}"
-    elif fleet_escalate:
-        reason = "abnormal_stop"
-    elif threat_escalate:
-        reason = f"threat_{disruption_stage}"
-    else:
-        reason = "no_disruption"
+    reason = _determine_reason(fleet_escalate, threat_escalate, disruption_stage)
 
     return {
         "truck_id": truck_id,
         "escalate": escalate,
         "reason": reason,
-        "fleet_output": fleet_output,
-        "threat_output": threat_output
+        "fleet_output": fleet_dict,
+        "threat_output": threat_dict
     }
+
