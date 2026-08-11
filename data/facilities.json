@@ -1,0 +1,149 @@
+[
+  {
+    "facility_id": "FAC-JAI-01",
+    "name": "Jaipur Agri Cold Storage & Logistics Hub",
+    "type": "cold_storage",
+    "latitude": 26.850,
+    "longitude": 75.780,
+    "location_name": "Jaipur Industrial Zone, RJ",
+    "available_capacity_percent": 45.0,
+    "total_capacity": 5000,
+    "temperature_range": {
+      "min_c": 2.0,
+      "max_c": 8.0
+    },
+    "supports_perishable_cargo": true,
+    "storage_cost_per_hour": 350.0,
+    "handling_cost": 1200.0,
+    "operating_hours": "24/7"
+  },
+  {
+    "facility_id": "FAC-JAI-02",
+    "name": "Jaipur Central Dry Freight Warehouse",
+    "type": "warehouse",
+    "latitude": 26.900,
+    "longitude": 75.820,
+    "location_name": "VKIA Industrial Area, Jaipur, RJ",
+    "available_capacity_percent": 75.0,
+    "total_capacity": 10000,
+    "temperature_range": null,
+    "supports_perishable_cargo": false,
+    "storage_cost_per_hour": 150.0,
+    "handling_cost": 500.0,
+    "operating_hours": "06:00-22:00"
+  },
+  {
+    "facility_id": "FAC-KLY-01",
+    "name": "Kalyan Regional Logistics Depot",
+    "type": "warehouse",
+    "latitude": 19.240,
+    "longitude": 73.130,
+    "location_name": "Bhiwandi-Kalyan Logistics Park, MH",
+    "available_capacity_percent": 30.0,
+    "total_capacity": 8000,
+    "temperature_range": null,
+    "supports_perishable_cargo": false,
+    "storage_cost_per_hour": 180.0,
+    "handling_cost": 600.0,
+    "operating_hours": "24/7"
+  },
+  {
+    "facility_id": "FAC-THN-01",
+    "name": "Thane Bio-Pharma Cold Storage Park",
+    "type": "cold_storage",
+    "latitude": 19.210,
+    "longitude": 73.080,
+    "location_name": "Thane Trans-Thane Creek Zone, MH",
+    "available_capacity_percent": 60.0,
+    "total_capacity": 3500,
+    "temperature_range": {
+      "min_c": 2.0,
+      "max_c": 8.0
+    },
+    "supports_perishable_cargo": true,
+    "storage_cost_per_hour": 400.0,
+    "handling_cost": 1500.0,
+    "operating_hours": "24/7"
+  },
+  {
+    "facility_id": "FAC-GUR-01",
+    "name": "Gurugram Express Cargo & Electronics Hub",
+    "type": "warehouse",
+    "latitude": 28.430,
+    "longitude": 76.990,
+    "location_name": "Manesar Logistics Zone, Gurugram, HR",
+    "available_capacity_percent": 85.0,
+    "total_capacity": 12000,
+    "temperature_range": null,
+    "supports_perishable_cargo": false,
+    "storage_cost_per_hour": 220.0,
+    "handling_cost": 750.0,
+    "operating_hours": "24/7"
+  },
+  {
+    "facility_id": "FAC-PUN-01",
+    "name": "Pune Cold Chain & Produce Terminal",
+    "type": "cold_storage",
+    "latitude": 18.520,
+    "longitude": 73.850,
+    "location_name": "Chakan Industrial Zone, Pune, MH",
+    "available_capacity_percent": 25.0,
+    "total_capacity": 4000,
+    "temperature_range": {
+      "min_c": 0.0,
+      "max_c": 10.0
+    },
+    "supports_perishable_cargo": true,
+    "storage_cost_per_hour": 320.0,
+    "handling_cost": 1000.0,
+    "operating_hours": "24/7"
+  },
+  {
+    "facility_id": "FAC-NSK-01",
+    "name": "Nashik Agro Cold Warehouse",
+    "type": "cold_storage",
+    "latitude": 19.997,
+    "longitude": 73.789,
+    "location_name": "MIDC Ambad, Nashik, MH",
+    "available_capacity_percent": 50.0,
+    "total_capacity": 4500,
+    "temperature_range": {
+      "min_c": 2.0,
+      "max_c": 8.0
+    },
+    "supports_perishable_cargo": true,
+    "storage_cost_per_hour": 280.0,
+    "handling_cost": 900.0,
+    "operating_hours": "06:00-22:00"
+  },
+  {
+    "facility_id": "FAC-SUR-01",
+    "name": "Surat Multi-Cargo Transit Hub",
+    "type": "warehouse",
+    "latitude": 21.170,
+    "longitude": 72.831,
+    "location_name": "Hazira Industrial Area, Surat, GJ",
+    "available_capacity_percent": 70.0,
+    "total_capacity": 9000,
+    "temperature_range": null,
+    "supports_perishable_cargo": false,
+    "storage_cost_per_hour": 160.0,
+    "handling_cost": 550.0,
+    "operating_hours": "24/7"
+  },
+  {
+    "facility_id": "FAC-AHM-01",
+    "name": "Ahmedabad Central Freight Terminal",
+    "type": "warehouse",
+    "latitude": 23.022,
+    "longitude": 72.571,
+    "location_name": "Sanand Logistics Park, Ahmedabad, GJ",
+    "available_capacity_percent": 65.0,
+    "total_capacity": 15000,
+    "temperature_range": null,
+    "supports_perishable_cargo": false,
+    "storage_cost_per_hour": 200.0,
+    "handling_cost": 700.0,
+    "operating_hours": "24/7"
+  }
+]

@@ -1,5 +1,5 @@
 """
-Standalone test script for Fleet Monitor Agent (agents/fleet_monitor.py) - Demo Data Alignment.
+Standalone test script for Fleet Monitor Agent (agents/fleet_monitor.py) - Standardized Dataset.
 Loads mock fleet telemetry from data/mock_fleet.json and validates Contract 1 output schema.
 """
 
@@ -33,7 +33,11 @@ EXPECTED_SCENARIOS = {
     "T101": {"expected_status": "normal", "description": "Scenario 3: Fully Clean Truck (Mumbai -> Pune)"},
     "TRK-107": {"expected_status": "abnormal_stop", "description": "Scenario 1: Reactive Abnormal Stop (Alias)"},
     "TRK-112": {"expected_status": "normal", "description": "Scenario 2: Proactive Risk Zone (Alias)"},
-    "TRK-101": {"expected_status": "normal", "description": "Scenario 3: Fully Clean Truck (Alias)"}
+    "TRK-101": {"expected_status": "normal", "description": "Scenario 3: Fully Clean Truck (Alias)"},
+    "TRK-102": {"expected_status": "abnormal_stop", "description": "Flood Waterlogging Abnormal Stop (Kalyan -> Nashik)"},
+    "TRK-104": {"expected_status": "normal", "description": "Proactive Risk Zone (Rewari -> Jaipur)"},
+    "TRK-105": {"expected_status": "abnormal_stop", "description": "Breakdown Abnormal Stop (Thane -> Delhi)"},
+    "TRK-106": {"expected_status": "normal", "description": "Clean Truck (Solapur -> Hyderabad)"}
 }
 
 
