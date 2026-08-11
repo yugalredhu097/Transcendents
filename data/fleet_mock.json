@@ -1,30 +1,79 @@
 [
   {
-    "truck_id": "TRK-104",
-    "location": {
-      "lat": 19.076,
-      "lng": 72.877,
-      "name": "near Kalyan, MH"
-    },
+    "truck_id": "T107",
+    "shipment_id": "SHP-107",
     "cargo_type": "perishable_produce",
-    "destination": "Pune",
-    "deadline": "2026-08-10T18:00:00",
-    "stopped_duration_minutes": 10,
+    "quantity": 1200,
+    "unit": "crates",
+    "delivery_deadline": "2026-08-11T18:00:00",
+    "deadline": "2026-08-11T18:00:00",
+    "remaining_shelf_life_hours": 14.0,
+    "temperature_requirement": {
+      "min_c": 2.0,
+      "max_c": 8.0,
+      "target_c": 4.0
+    },
+    "cargo_value": 450000,
+    "priority": "HIGH",
+    "location": {
+      "lat": 26.912,
+      "lng": 75.787,
+      "name": "NH-48 near Jaipur, RJ"
+    },
+    "destination": "Mumbai",
+    "speed_kmh": 0,
+    "stopped_duration_minutes": 45,
+    "delay_minutes": 45,
+    "last_updated": "2026-08-11T10:00:00"
+  },
+  {
+    "truck_id": "TRK-104",
+    "shipment_id": "SHP-104",
+    "cargo_type": "perishable_produce",
+    "quantity": 1000,
+    "unit": "crates",
+    "delivery_deadline": "2026-08-11T20:00:00",
+    "deadline": "2026-08-11T20:00:00",
+    "remaining_shelf_life_hours": 12.0,
+    "temperature_requirement": {
+      "min_c": 2.0,
+      "max_c": 8.0,
+      "target_c": 4.0
+    },
+    "cargo_value": 350000,
+    "priority": "HIGH",
+    "location": {
+      "lat": 28.350,
+      "lng": 76.900,
+      "name": "NH-48 near Rewari, HR"
+    },
+    "destination": "Jaipur",
+    "speed_kmh": 60,
+    "stopped_duration_minutes": 0,
     "delay_minutes": 0,
-    "last_updated": "2026-08-08T14:22:00"
+    "last_updated": "2026-08-11T10:10:00"
   },
   {
     "truck_id": "TRK-105",
+    "shipment_id": "SHP-105",
+    "cargo_type": "electronics",
+    "quantity": 600,
+    "unit": "units",
+    "delivery_deadline": "2026-08-12T10:00:00",
+    "deadline": "2026-08-12T10:00:00",
+    "remaining_shelf_life_hours": null,
+    "temperature_requirement": null,
+    "cargo_value": 1500000,
+    "priority": "CRITICAL",
     "location": {
       "lat": 19.218,
       "lng": 73.102,
       "name": "NH-48 near Thane, MH"
     },
-    "cargo_type": "pharmaceuticals",
-    "destination": "Nashik",
-    "deadline": "2026-08-11T12:00:00",
+    "destination": "Delhi",
+    "speed_kmh": 0,
     "stopped_duration_minutes": 45,
     "delay_minutes": 45,
-    "last_updated": "2026-08-08T14:30:00"
+    "last_updated": "2026-08-11T09:55:00"
   }
 ]

@@ -1,20 +1,93 @@
 {
   "TRK-102": {
     "disruption_type": "flood",
-    "description": "Heavy waterlogging reported on NH-60 near Kalyan",
+    "description": "Heavy waterlogging reported on NH-160 near Kalyan",
     "source": "mock_weather_api",
     "confidence": 0.85,
     "verified": true,
     "disruption_stage": "current",
-    "predicted_delay_hours": 2.5
+    "predicted_delay_hours": 2.5,
+    "start_time": "2026-08-11T08:00:00",
+    "expected_end_time": "2026-08-11T14:30:00",
+    "affected_corridor": "NH-160 Kalyan-Thane Section",
+    "severity": "HIGH"
   },
   "TRK-104": {
     "disruption_type": "protest",
-    "description": "Protest announced on NH-8 corridor near Jaipur",
+    "description": "Protest announced on NH-48 corridor near Jaipur",
     "source": "mock_news_api",
     "confidence": 0.8,
     "verified": true,
     "disruption_stage": "upcoming",
-    "predicted_delay_hours": 5.0
+    "predicted_delay_hours": 5.0,
+    "start_time": "2026-08-11T12:00:00",
+    "expected_end_time": "2026-08-11T17:00:00",
+    "affected_corridor": "NH-48 Jaipur-Ajmer Corridor",
+    "severity": "HIGH"
+  },
+  "T107": {
+    "disruption_type": "landslide",
+    "description": "Debris blockade on NH-48 mountain pass near Jaipur",
+    "source": "mock_traffic_feed",
+    "confidence": 0.9,
+    "verified": true,
+    "disruption_stage": "current",
+    "predicted_delay_hours": 4.0,
+    "start_time": "2026-08-11T07:30:00",
+    "expected_end_time": "2026-08-11T15:00:00",
+    "affected_corridor": "NH-48 Jaipur-Udaipur Highway",
+    "severity": "CRITICAL"
+  },
+  "TRK-107": {
+    "disruption_type": "landslide",
+    "description": "Debris blockade on NH-48 mountain pass near Jaipur",
+    "source": "mock_traffic_feed",
+    "confidence": 0.9,
+    "verified": true,
+    "disruption_stage": "current",
+    "predicted_delay_hours": 4.0,
+    "start_time": "2026-08-11T07:30:00",
+    "expected_end_time": "2026-08-11T15:00:00",
+    "affected_corridor": "NH-48 Jaipur-Udaipur Highway",
+    "severity": "CRITICAL"
+  },
+  "T112": {
+    "disruption_type": "protest",
+    "description": "Farmer rally blocking NH-48 toll plaza near Jaipur entry",
+    "source": "mock_news_api",
+    "confidence": 0.85,
+    "verified": true,
+    "disruption_stage": "upcoming",
+    "predicted_delay_hours": 3.5,
+    "start_time": "2026-08-11T13:00:00",
+    "expected_end_time": "2026-08-11T18:00:00",
+    "affected_corridor": "NH-48 Delhi-Jaipur Express Corridor",
+    "severity": "HIGH"
+  },
+  "TRK-112": {
+    "disruption_type": "protest",
+    "description": "Farmer rally blocking NH-48 toll plaza near Jaipur entry",
+    "source": "mock_news_api",
+    "confidence": 0.85,
+    "verified": true,
+    "disruption_stage": "upcoming",
+    "predicted_delay_hours": 3.5,
+    "start_time": "2026-08-11T13:00:00",
+    "expected_end_time": "2026-08-11T18:00:00",
+    "affected_corridor": "NH-48 Delhi-Jaipur Express Corridor",
+    "severity": "HIGH"
+  },
+  "TRK-105": {
+    "disruption_type": "breakdown",
+    "description": "Unplanned axle breakdown on NH-48 near Thane",
+    "source": "mock_telemetry_agent",
+    "confidence": 0.95,
+    "verified": true,
+    "disruption_stage": "current",
+    "predicted_delay_hours": 3.0,
+    "start_time": "2026-08-11T09:15:00",
+    "expected_end_time": "2026-08-11T13:00:00",
+    "affected_corridor": "NH-48 Thane-Ghodbunder Stretch",
+    "severity": "MEDIUM"
   }
 }
