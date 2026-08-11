@@ -50,7 +50,11 @@ def query_web_search_api(current_location: str, destination: str) -> Dict[str, A
             "confidence": 0.85,
             "verified": True,
             "disruption_stage": "upcoming",
-            "predicted_delay_hours": 4.0
+            "predicted_delay_hours": 4.0,
+            "start_time": "",
+            "expected_end_time": "",
+            "affected_corridor": f"{current_location} to {destination}",
+            "severity": "high"
         }
     
     return {
@@ -60,7 +64,11 @@ def query_web_search_api(current_location: str, destination: str) -> Dict[str, A
         "confidence": 1.0,
         "verified": True,
         "disruption_stage": "none",
-        "predicted_delay_hours": 0.0
+        "predicted_delay_hours": 0.0,
+        "start_time": "",
+        "expected_end_time": "",
+        "affected_corridor": "none",
+        "severity": "none"
     }
 
 
@@ -69,7 +77,7 @@ def assess_threat(truck_data: Dict[str, Any], force_api_failure: bool = False) -
     Assesses threat intelligence for a given truck independently of fleet monitor status.
     Attempts live Web Search API query first, falling back to mock_disruptions.json on failure.
 
-    Contract Output:
+    Contract Output (12 fields):
     {
       "truck_id": str,
       "disruption_type": str,
@@ -78,7 +86,11 @@ def assess_threat(truck_data: Dict[str, Any], force_api_failure: bool = False) -
       "confidence": float,
       "verified": bool,
       "disruption_stage": str, ("current", "upcoming", or "none")
-      "predicted_delay_hours": float
+      "predicted_delay_hours": float,
+      "start_time": str,
+      "expected_end_time": str,
+      "affected_corridor": str,
+      "severity": str
     }
     """
     truck_id = truck_data.get("truck_id", "UNKNOWN")
@@ -96,7 +108,11 @@ def assess_threat(truck_data: Dict[str, Any], force_api_failure: bool = False) -
             "confidence": float(d.get("confidence", 1.0)),
             "verified": bool(d.get("verified", True)),
             "disruption_stage": str(d.get("disruption_stage", "none")),
-            "predicted_delay_hours": float(d.get("predicted_delay_hours", 0.0))
+            "predicted_delay_hours": float(d.get("predicted_delay_hours", 0.0)),
+            "start_time": str(d.get("start_time", "")),
+            "expected_end_time": str(d.get("expected_end_time", "")),
+            "affected_corridor": str(d.get("affected_corridor", "none")),
+            "severity": str(d.get("severity", "none"))
         }
 
     # 2. Try Web Search API unless force_api_failure is set
@@ -105,7 +121,7 @@ def assess_threat(truck_data: Dict[str, Any], force_api_failure: bool = False) -
             api_result = query_web_search_api(current_location, destination)
             api_result["truck_id"] = truck_id
             return api_result
-        except Exception as e:
+        except Exception:
             # Fallback path: Web Search API failed or key missing
             pass
 
@@ -121,7 +137,11 @@ def assess_threat(truck_data: Dict[str, Any], force_api_failure: bool = False) -
             "confidence": float(d_info.get("confidence", 0.8)),
             "verified": bool(d_info.get("verified", True)),
             "disruption_stage": str(d_info.get("disruption_stage", "none")),
-            "predicted_delay_hours": float(d_info.get("predicted_delay_hours", 0.0))
+            "predicted_delay_hours": float(d_info.get("predicted_delay_hours", 0.0)),
+            "start_time": str(d_info.get("start_time", "")),
+            "expected_end_time": str(d_info.get("expected_end_time", "")),
+            "affected_corridor": str(d_info.get("affected_corridor", "none")),
+            "severity": str(d_info.get("severity", "none"))
         }
 
     # 4. Default fallback: No threat found
@@ -133,5 +153,9 @@ def assess_threat(truck_data: Dict[str, Any], force_api_failure: bool = False) -
         "confidence": 1.0,
         "verified": True,
         "disruption_stage": "none",
-        "predicted_delay_hours": 0.0
+        "predicted_delay_hours": 0.0,
+        "start_time": "",
+        "expected_end_time": "",
+        "affected_corridor": "none",
+        "severity": "none"
     }

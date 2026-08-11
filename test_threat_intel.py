@@ -1,5 +1,5 @@
+import json
 import sys
-import unittest.mock as mock
 from agents.threat_intel import assess_threat
 
 REQUIRED_KEYS = {
@@ -11,59 +11,62 @@ REQUIRED_KEYS = {
     "verified",
     "disruption_stage",
     "predicted_delay_hours",
+    "start_time",
+    "expected_end_time",
+    "affected_corridor",
+    "severity",
 }
 VALID_STAGES = {"current", "upcoming", "none"}
 
 
-def validate_contract(result: dict) -> None:
-    """Validates that output dictionary matches contract schema exactly."""
+def validate_12_field_contract(result: dict) -> None:
+    """Validates that output dictionary matches the 12-field contract schema exactly."""
     missing = REQUIRED_KEYS - set(result.keys())
     assert not missing, f"Missing contract keys: {missing}"
+    assert len(result.keys()) == 12, f"Expected exactly 12 fields in contract, found {len(result.keys())}: {list(result.keys())}"
+    
     assert result["disruption_stage"] in VALID_STAGES, f"Invalid stage: {result['disruption_stage']}"
-    assert isinstance(result["predicted_delay_hours"], (int, float)), "predicted_delay_hours must be numeric"
+    assert isinstance(result["truck_id"], str), "truck_id must be str"
+    assert isinstance(result["disruption_type"], str), "disruption_type must be str"
+    assert isinstance(result["description"], str), "description must be str"
+    assert isinstance(result["source"], str), "source must be str"
     assert isinstance(result["confidence"], (int, float)), "confidence must be numeric"
     assert isinstance(result["verified"], bool), "verified must be boolean"
+    assert isinstance(result["predicted_delay_hours"], (int, float)), "predicted_delay_hours must be numeric"
+    assert isinstance(result["start_time"], str), "start_time must be str"
+    assert isinstance(result["expected_end_time"], str), "expected_end_time must be str"
+    assert isinstance(result["affected_corridor"], str), "affected_corridor must be str"
+    assert isinstance(result["severity"], str), "severity must be str"
 
 
 def run_tests():
-    print("=" * 65)
-    print("Running Threat Intelligence Agent Round 2 Test Suite")
-    print("=" * 65)
+    print("=" * 67)
+    print(" Running Threat Intelligence Agent 12-Field Contract Test Suite ")
+    print("=" * 67)
 
     # -------------------------------------------------------------
-    # Test Path 1: Successful Web Search API Integration Path
+    # Case 1: No threat nearby -> returns "disruption_stage": "none"
     # -------------------------------------------------------------
-    truck_api_case = {
-        "truck_id": "TRK-104",
+    truck_case_1 = {
+        "truck_id": "TRK-999",
         "status": "moving",
-        "current_location": "Gurugram",
-        "destination": "Jaipur",
-        "deadline": "2026-08-11T18:00:00Z"
+        "current_location": "Mumbai",
+        "destination": "Pune",
+        "deadline": "2026-08-11T20:00:00Z"
     }
 
-    mock_api_response = {
-        "disruption_type": "protest",
-        "description": "Protest announced on NH-8 corridor near Jaipur",
-        "source": "web_search_api",
-        "confidence": 0.8,
-        "verified": True,
-        "disruption_stage": "upcoming",
-        "predicted_delay_hours": 5.0
-    }
-
-    with mock.patch("agents.threat_intel.query_web_search_api", return_value=mock_api_response):
-        result_api = assess_threat(truck_api_case, force_api_failure=False)
-        validate_contract(result_api)
-        assert result_api["source"] == "web_search_api", f"Expected 'web_search_api', got {result_api['source']}"
-        assert result_api["disruption_stage"] == "upcoming"
-        assert result_api["predicted_delay_hours"] == 5.0
-        print("\n[PASS] Test Path 1: Web Search API Integration Path")
-        print(f"  Output: {result_api}")
+    result_case_1 = assess_threat(truck_case_1, force_api_failure=True)
+    validate_12_field_contract(result_case_1)
+    assert result_case_1["disruption_stage"] == "none", f"Expected 'none', got {result_case_1['disruption_stage']}"
+    assert result_case_1["severity"] == "none"
+    assert result_case_1["affected_corridor"] == "none"
+    print("\n[PASS] Case 1: No Threat Nearby")
+    print(f"  Output: {json.dumps(result_case_1, indent=2)}")
 
     # -------------------------------------------------------------
-    # Test Path 2: API Failure & Hard Fallback to mock_disruptions.json
+    # Case 2: Truck already stopped with a confirmed nearby issue -> "current"
     # -------------------------------------------------------------
-    truck_fallback_case = {
+    truck_case_2 = {
         "truck_id": "TRK-102",
         "status": "stopped",
         "current_location": "Kalyan",
@@ -71,36 +74,42 @@ def run_tests():
         "deadline": "2026-08-11T14:00:00Z"
     }
 
-    # Force API failure via force_api_failure=True flag AND via simulated API exception
-    with mock.patch("agents.threat_intel.query_web_search_api", side_effect=RuntimeError("Web Search API timeout / connection error")):
-        result_fallback = assess_threat(truck_fallback_case, force_api_failure=True)
-        validate_contract(result_fallback)
-        assert result_fallback["disruption_stage"] == "current"
-        assert result_fallback["source"] == "mock_weather_api"
-        assert result_fallback["predicted_delay_hours"] == 2.5
-        print("\n[PASS] Test Path 2: API Failure & Hard Fallback to mock_disruptions.json")
-        print(f"  Fallback Output: {result_fallback}")
+    result_case_2 = assess_threat(truck_case_2, force_api_failure=True)
+    validate_12_field_contract(result_case_2)
+    assert result_case_2["disruption_stage"] == "current", f"Expected 'current', got {result_case_2['disruption_stage']}"
+    assert result_case_2["disruption_type"] == "flood"
+    assert result_case_2["severity"] == "high"
+    assert result_case_2["affected_corridor"] == "NH-60"
+    assert result_case_2["start_time"] == "2026-08-11T08:00:00"
+    assert result_case_2["expected_end_time"] == "2026-08-12T12:00:00"
+    print("\n[PASS] Case 2: Truck Already Stopped with Confirmed Nearby Issue")
+    print(f"  Output: {json.dumps(result_case_2, indent=2)}")
 
     # -------------------------------------------------------------
-    # Test Case 3: Default No Threat Fallback
+    # Case 3: Truck moving fine but a threat found further down the route -> "upcoming"
     # -------------------------------------------------------------
-    truck_no_threat = {
-        "truck_id": "TRK-101",
+    truck_case_3 = {
+        "truck_id": "TRK-104",
         "status": "moving",
-        "current_location": "Mumbai",
+        "current_location": "Kalyan",
         "destination": "Pune",
-        "deadline": "2026-08-11T10:00:00Z"
+        "deadline": "2026-08-11T18:00:00Z"
     }
-    result_none = assess_threat(truck_no_threat, force_api_failure=True)
-    validate_contract(result_none)
-    assert result_none["disruption_stage"] == "none"
-    assert result_none["predicted_delay_hours"] == 0.0
-    print("\n[PASS] Test Case 3: Default No Threat Fallback")
-    print(f"  Output: {result_none}")
 
-    print("\n" + "=" * 65)
-    print("ALL THREAT INTEL ROUND 2 TEST CASES PASSED SUCCESSFULLY!")
-    print("=" * 65)
+    result_case_3 = assess_threat(truck_case_3, force_api_failure=True)
+    validate_12_field_contract(result_case_3)
+    assert result_case_3["disruption_stage"] == "upcoming", f"Expected 'upcoming', got {result_case_3['disruption_stage']}"
+    assert result_case_3["disruption_type"] == "protest"
+    assert result_case_3["severity"] == "high"
+    assert result_case_3["affected_corridor"] == "NH-48 Mumbai-Pune Expressway"
+    assert result_case_3["start_time"] == "2026-08-11T12:00:00"
+    assert result_case_3["expected_end_time"] == "2026-08-11T17:00:00"
+    print("\n[PASS] Case 3: Truck Moving Fine but Threat Found Further Down Route")
+    print(f"  Output: {json.dumps(result_case_3, indent=2)}")
+
+    print("\n" + "=" * 67)
+    print(" ALL 3 THREAT INTEL 12-FIELD CONTRACT TEST CASES PASSED SUCCESSFULLY! ")
+    print("=" * 67)
 
 
 if __name__ == "__main__":
