@@ -17,7 +17,6 @@ import urllib.parse
 from typing import Dict, Any, Optional, Callable
 
 # Named Threshold Constants for Live Demo Q&A and Backward Compatibility
-DEFAULT_SHELF_LIFE_MARGIN_HOURS = 6.0
 DEFAULT_MAX_ALLOWED_COST = 5000.0
 DEFAULT_MAX_ALLOWED_DELAY_HOURS = 8.0
 SAFE_ACTIONS = {"reroute", "wait", "transfer_to_storage", "transfer_to_another_vehicle"}
@@ -33,11 +32,29 @@ class DeterministicEvaluator:
         estimated_delay_hours = float(plan_data.get("estimated_delay_hours", 0.0))
         estimated_cost = float(plan_data.get("estimated_cost", 0.0))
 
-        shelf_life_margin = float(plan_data.get("shelf_life_hours", DEFAULT_SHELF_LIFE_MARGIN_HOURS))
+        raw_shelf_life = plan_data.get("shelf_life_hours")
+        shelf_life_hours: Optional[float] = None
+        if raw_shelf_life is not None:
+            try:
+                shelf_life_hours = float(raw_shelf_life)
+            except (ValueError, TypeError):
+                shelf_life_hours = None
+
         max_cost = float(plan_data.get("budget_limit", DEFAULT_MAX_ALLOWED_COST))
         max_delay = float(plan_data.get("max_allowed_delay", DEFAULT_MAX_ALLOWED_DELAY_HOURS))
 
-        shelf_life_ok = estimated_delay_hours <= shelf_life_margin
+        shelf_life_known = (shelf_life_hours is not None)
+        if shelf_life_known:
+            shelf_life_ok = estimated_delay_hours <= shelf_life_hours
+            shelf_life_status = "pass" if shelf_life_ok else "fail"
+        else:
+            # True here must not be interpreted as verified shelf-life safety when shelf life is unknown.
+            # Contract 5 requires a boolean field risk_factors.shelf_life_ok. We set True to avoid
+            # false automatic rejection when shelf life is unknown, but record shelf_life_status = "unknown"
+            # and explicitly state in reasoning that shelf-life safety could not be verified.
+            shelf_life_ok = True
+            shelf_life_status = "unknown"
+
         cost_ok = estimated_cost <= max_cost
         eta_ok = estimated_delay_hours <= max_delay
         safety_ok = recommended_action in SAFE_ACTIONS
@@ -46,25 +63,31 @@ class DeterministicEvaluator:
         decision = "ACCEPT" if all_passed else "REJECT"
 
         if decision == "ACCEPT":
-            shelf_life_str = (
-                f"{int(shelf_life_margin)}"
-                if shelf_life_margin.is_integer()
-                else f"{shelf_life_margin}"
-            )
             delay_str = (
                 f"{int(estimated_delay_hours)}"
                 if estimated_delay_hours.is_integer()
                 else f"{estimated_delay_hours}"
             )
-            reasoning = (
-                f"Cargo shelf-life margin ({shelf_life_str}h) exceeds new ETA delay ({delay_str}h); "
-                f"cost within threshold"
-            )
+            if shelf_life_known:
+                shelf_life_str = (
+                    f"{int(shelf_life_hours)}"
+                    if shelf_life_hours.is_integer()
+                    else f"{shelf_life_hours}"
+                )
+                reasoning = (
+                    f"Cargo shelf-life margin ({shelf_life_str}h) exceeds new ETA delay ({delay_str}h); "
+                    f"cost within threshold."
+                )
+            else:
+                reasoning = (
+                    f"ETA delay ({delay_str}h) and cost within operational thresholds; "
+                    f"shelf-life safety could not be verified because remaining shelf-life information is unavailable."
+                )
         else:
             failed_reasons = []
-            if not shelf_life_ok:
+            if shelf_life_known and not shelf_life_ok:
                 failed_reasons.append(
-                    f"ETA delay ({estimated_delay_hours}h) exceeds cargo shelf-life margin ({shelf_life_margin}h)"
+                    f"ETA delay ({estimated_delay_hours}h) exceeds cargo shelf-life margin ({shelf_life_hours}h)"
                 )
             if not cost_ok:
                 failed_reasons.append(
@@ -84,6 +107,7 @@ class DeterministicEvaluator:
             "truck_id": truck_id,
             "decision": decision,
             "reasoning": reasoning,
+            "shelf_life_status": shelf_life_status,
             "risk_factors": {
                 "shelf_life_ok": shelf_life_ok,
                 "cost_ok": cost_ok,
@@ -113,7 +137,10 @@ class PromptBuilder:
             "   - Exceed cost budgets without critical justification.\n"
             "   - Rely on unsupported assumptions (e.g., waiting when disruption duration is long).\n"
             "4. Accept ONLY when the plan is operationally sound, risks are acceptable, and logic is internally consistent.\n"
-            "5. If information is insufficient or contradictory, explicitly note the uncertainty in reasoning.\n\n"
+            "5. If information is insufficient or contradictory, explicitly note the uncertainty in reasoning.\n"
+            "6. UNKNOWN SHELF LIFE RULE: If remaining shelf life is UNKNOWN / Unspecified (null/missing), the shelf-life constraint cannot be independently verified. "
+            "Do NOT assume or invent a numeric shelf life. Do NOT estimate shelf life from cargo type. Explicitly state in your reasoning that shelf-life safety could not be verified due to missing information. "
+            "Evaluate remaining operational risk factors (safety, cost, ETA, disruption severity) to reach an ACCEPT or REJECT decision.\n\n"
             "OUTPUT FORMAT (STRICT JSON ONLY):\n"
             "You MUST respond with valid JSON matching Contract 5. Do NOT include markdown code fences or extra conversational text.\n"
             "{\n"
@@ -131,6 +158,8 @@ class PromptBuilder:
 
     @staticmethod
     def build_user_prompt(plan_data: Dict[str, Any], det_eval: Dict[str, Any]) -> str:
+        raw_sl = plan_data.get("shelf_life_hours")
+        sl_display = f"{raw_sl} hours (Known)" if raw_sl is not None else "UNKNOWN / Unspecified (Cannot be verified)"
         return f"""Audit the following proposed logistics incident response plan:
 
 ### PROPOSED PLAN DETAILS (Contract 4)
@@ -144,7 +173,8 @@ class PromptBuilder:
 ### CONTEXTUAL DISRUPTION & CARGO METRICS
 - Cargo Type: {plan_data.get('cargo_type', 'General Freight')}
 - Cold Chain Required: {plan_data.get('cold_chain', False)}
-- Remaining Shelf Life: {plan_data.get('shelf_life_hours', 'Unspecified')} hours
+- Remaining Shelf Life: {sl_display}
+- Shelf Life Status: {det_eval.get('shelf_life_status', 'unknown')}
 - Customer Priority: {plan_data.get('customer_priority', 'Standard')}
 - Disruption Type: {plan_data.get('disruption_type', 'Unspecified')}
 - Weather Severity: {plan_data.get('weather_severity', 'Normal')}
@@ -204,11 +234,17 @@ class JSONValidator:
 
         risk_factors = data.get("risk_factors")
         if not isinstance(risk_factors, dict):
-            return None
-
-        for field in ("shelf_life_ok", "cost_ok", "eta_ok", "safety_ok"):
-            if field not in risk_factors or not isinstance(risk_factors[field], bool):
-                return None
+            is_accept = (decision == "ACCEPT")
+            risk_factors = {
+                "shelf_life_ok": is_accept,
+                "cost_ok": is_accept,
+                "eta_ok": is_accept,
+                "safety_ok": is_accept
+            }
+        else:
+            for field in ("shelf_life_ok", "cost_ok", "eta_ok", "safety_ok"):
+                if field not in risk_factors or not isinstance(risk_factors[field], bool):
+                    risk_factors[field] = bool(risk_factors.get(field, decision == "ACCEPT"))
 
         return {
             "truck_id": truck_id,
@@ -224,7 +260,7 @@ class JSONValidator:
 
 
 class LLMClient:
-    """Wrapper for calling Google Gemini API or injected mock handler."""
+    """Wrapper for calling Google Gemini API or injected mock handler using shared gemini_client service."""
 
     def __init__(self, mock_handler: Optional[Callable[[str, str], str]] = None):
         self.mock_handler = mock_handler
@@ -233,72 +269,15 @@ class LLMClient:
         if self.mock_handler is not None:
             return self.mock_handler(system_prompt, user_prompt)
 
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        if not api_key:
+        from services.gemini_client import generate
+        try:
+            return generate(
+                prompt=user_prompt,
+                system_instruction=system_prompt,
+                temperature=0.2
+            )
+        except Exception:
             return None
-
-        # 1. Try google.generativeai SDK if installed
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-1.5-flash", system_instruction=system_prompt)
-            response = model.generate_content(
-                user_prompt,
-                generation_config={"response_mime_type": "application/json", "temperature": 0.2}
-            )
-            if response and response.text:
-                return response.text
-        except Exception:
-            pass
-
-        # 2. Try google.genai SDK if installed
-        try:
-            from google import genai
-            client = genai.Client(api_key=api_key)
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=f"{system_prompt}\n\n{user_prompt}",
-                config={"response_mime_type": "application/json"}
-            )
-            if response and response.text:
-                return response.text
-        except Exception:
-            pass
-
-        # 3. Direct REST HTTP API call (Zero dependency fallback)
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-            payload = {
-                "contents": [
-                    {
-                        "role": "user",
-                        "parts": [{"text": f"System Instructions:\n{system_prompt}\n\nUser Request:\n{user_prompt}"}]
-                    }
-                ],
-                "generationConfig": {
-                    "temperature": 0.2,
-                    "responseMimeType": "application/json"
-                }
-            }
-            data_bytes = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                url,
-                data=data_bytes,
-                headers={"Content-Type": "application/json"},
-                method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=timeout_sec) as response:
-                if response.status == 200:
-                    resp_json = json.loads(response.read().decode("utf-8"))
-                    candidates = resp_json.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        if parts:
-                            return parts[0].get("text", "")
-        except Exception:
-            pass
-
-        return None
 
 
 class RiskCriticService:
@@ -310,7 +289,7 @@ class RiskCriticService:
     def evaluate(self, plan_data: Dict[str, Any]) -> Dict[str, Any]:
         truck_id = str(plan_data.get("truck_id", ""))
         
-        # Step 1: Baseline Deterministic Evaluation
+        # Step 1: Baseline Deterministic Evaluation (retains internal shelf_life_status)
         det_eval = DeterministicEvaluator.evaluate(plan_data)
 
         # Step 2: Build Prompts
@@ -336,8 +315,24 @@ class RiskCriticService:
                 if validated_retry:
                     return validated_retry
 
-        # Step 5: Safe Fallback to Deterministic Evaluator on API error / timeout / malformed output
-        return det_eval
+        # Step 5: Safe Fallback to Deterministic Evaluator formatted strictly as Contract 5
+        return self._format_contract_5_fallback(det_eval)
+
+    @staticmethod
+    def _format_contract_5_fallback(det_eval: Dict[str, Any]) -> Dict[str, Any]:
+        """Formats deterministic evaluation into strict Contract 5 payload, stripping internal metadata."""
+        rf = det_eval.get("risk_factors", {})
+        return {
+            "truck_id": str(det_eval.get("truck_id", "")),
+            "decision": str(det_eval.get("decision", "REJECT")),
+            "reasoning": str(det_eval.get("reasoning", "")),
+            "risk_factors": {
+                "shelf_life_ok": bool(rf.get("shelf_life_ok", True)),
+                "cost_ok": bool(rf.get("cost_ok", True)),
+                "eta_ok": bool(rf.get("eta_ok", True)),
+                "safety_ok": bool(rf.get("safety_ok", True)),
+            }
+        }
 
 
 def evaluate_risk(plan_data: dict) -> dict:

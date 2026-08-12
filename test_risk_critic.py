@@ -24,6 +24,7 @@ class TestRiskCritic(unittest.TestCase):
             "reasoning": "Protest expected in ~2 hours on current route; alternate adds 1.5h, still within deadline",
             "estimated_delay_hours": 1.5,
             "estimated_cost": 850,
+            "shelf_life_hours": 6.0,
             "alternative_route": {"distance_km": 62, "duration_min": 95}
         }
 
@@ -166,6 +167,156 @@ class TestRiskCritic(unittest.TestCase):
 
         invalid_raw = '{"truck_id": "TRK-999", "decision": "MAYBE"}'
         self.assertIsNone(JSONValidator.validate(invalid_raw))
+
+    def test_9_unknown_shelf_life_handling(self):
+        """Test Case 9: Explicit UNKNOWN shelf-life handling when shelf_life_hours is missing."""
+        plan_without_shelf_life = {
+            "truck_id": "TRK-UNKNOWN-SL",
+            "recommended_action": "reroute",
+            "reasoning": "Standard reroute plan",
+            "estimated_delay_hours": 1.5,
+            "estimated_cost": 850,
+            "alternative_route": {"distance_km": 62, "duration_min": 95}
+        }
+        det_out = DeterministicEvaluator.evaluate(plan_without_shelf_life)
+        self.assertEqual(det_out.get("shelf_life_status"), "unknown")
+
+        llm = LLMClient(mock_handler=lambda sys, user: None)
+        service = RiskCriticService(llm_client=llm)
+        out = service.evaluate(plan_without_shelf_life)
+
+        self.assertEqual(out["decision"], "ACCEPT")
+        self.assertNotIn("shelf_life_status", out)
+        self.assertIn("could not be verified", out["reasoning"].lower())
+        self.assertNotIn("margin is sufficient", out["reasoning"].lower())
+        # Verify Contract 5 fields
+        self.assertIn("truck_id", out)
+        self.assertIn("decision", out)
+        self.assertIn("reasoning", out)
+        self.assertIn("risk_factors", out)
+
+    def test_10_known_safe_shelf_life(self):
+        """TEST A — KNOWN SAFE SHELF LIFE: shelf_life_hours=6, delay=1.5 -> numeric check passes."""
+        plan = dict(self.standard_plan)
+        plan["shelf_life_hours"] = 6.0
+        plan["estimated_delay_hours"] = 1.5
+
+        det_out = DeterministicEvaluator.evaluate(plan)
+        self.assertEqual(det_out.get("shelf_life_status"), "pass")
+
+        llm = LLMClient(mock_handler=lambda sys, user: None)
+        service = RiskCriticService(llm_client=llm)
+        out = service.evaluate(plan)
+
+        self.assertEqual(out["decision"], "ACCEPT")
+        self.assertTrue(out["risk_factors"]["shelf_life_ok"])
+        self.assertNotIn("shelf_life_status", out)
+        self.assertIn("margin (6h) exceeds", out["reasoning"])
+
+    def test_11_known_unsafe_shelf_life(self):
+        """TEST B — KNOWN UNSAFE SHELF LIFE: shelf_life_hours=3, delay=6 -> numeric check fails."""
+        plan = dict(self.standard_plan)
+        plan["shelf_life_hours"] = 3.0
+        plan["estimated_delay_hours"] = 6.0
+
+        det_out = DeterministicEvaluator.evaluate(plan)
+        self.assertEqual(det_out.get("shelf_life_status"), "fail")
+
+        llm = LLMClient(mock_handler=lambda sys, user: None)
+        service = RiskCriticService(llm_client=llm)
+        out = service.evaluate(plan)
+
+        self.assertEqual(out["decision"], "REJECT")
+        self.assertFalse(out["risk_factors"]["shelf_life_ok"])
+        self.assertNotIn("shelf_life_status", out)
+        self.assertIn("exceeds cargo shelf-life margin (3.0h)", out["reasoning"])
+
+    def test_12_unknown_absent_shelf_life(self):
+        """TEST C — UNKNOWN SHELF LIFE: missing field remains UNKNOWN without numeric fallback."""
+        plan = {
+            "truck_id": "TRK-C",
+            "recommended_action": "reroute",
+            "reasoning": "Alternate route",
+            "estimated_delay_hours": 2.0,
+            "estimated_cost": 500,
+        }
+        det_out = DeterministicEvaluator.evaluate(plan)
+        self.assertEqual(det_out.get("shelf_life_status"), "unknown")
+
+        llm = LLMClient(mock_handler=lambda sys, user: None)
+        service = RiskCriticService(llm_client=llm)
+        out = service.evaluate(plan)
+
+        self.assertEqual(out["decision"], "ACCEPT")
+        self.assertNotIn("shelf_life_status", out)
+        self.assertIn("could not be verified", out["reasoning"])
+        self.assertNotIn("6h", out["reasoning"])
+
+    def test_13_null_shelf_life(self):
+        """TEST D — NULL SHELF LIFE: shelf_life_hours=None behaves identically to missing field."""
+        plan = {
+            "truck_id": "TRK-D",
+            "recommended_action": "reroute",
+            "reasoning": "Alternate route",
+            "estimated_delay_hours": 2.0,
+            "estimated_cost": 500,
+            "shelf_life_hours": None
+        }
+        det_out = DeterministicEvaluator.evaluate(plan)
+        self.assertEqual(det_out.get("shelf_life_status"), "unknown")
+
+        llm = LLMClient(mock_handler=lambda sys, user: None)
+        service = RiskCriticService(llm_client=llm)
+        out = service.evaluate(plan)
+
+        self.assertEqual(out["decision"], "ACCEPT")
+        self.assertNotIn("shelf_life_status", out)
+        self.assertIn("could not be verified", out["reasoning"])
+
+    def test_14_gemini_failure_with_unknown_shelf_life(self):
+        """TEST E — GEMINI FAILURE WITH UNKNOWN SHELF LIFE: fallback states uncertainty explicitly."""
+        plan = {
+            "truck_id": "TRK-E",
+            "recommended_action": "reroute",
+            "reasoning": "Reroute plan",
+            "estimated_delay_hours": 1.5,
+            "estimated_cost": 850,
+            "shelf_life_hours": None
+        }
+        llm = LLMClient(mock_handler=lambda sys, user: None)  # Force LLM fallback
+        service = RiskCriticService(llm_client=llm)
+        out = service.evaluate(plan)
+
+        self.assertEqual(out["decision"], "ACCEPT")
+        self.assertNotIn("shelf_life_status", out)
+        self.assertIn("shelf-life safety could not be verified", out["reasoning"])
+        self.assertNotIn("sufficient", out["reasoning"])
+
+    def test_15_contract_5_fallback_boundary_keys(self):
+        """TEST F — CONTRACT 5 FALLBACK BOUNDARY: fallback returns EXACT top-level Contract 5 keys without extra fields."""
+        plan = {
+            "truck_id": "TRK-FALLBACK-C5",
+            "recommended_action": "reroute",
+            "reasoning": "Standard reroute plan",
+            "estimated_delay_hours": 1.5,
+            "estimated_cost": 850,
+        }
+        llm = LLMClient(mock_handler=lambda sys, user: None)  # Force fallback
+        service = RiskCriticService(llm_client=llm)
+        out = service.evaluate(plan)
+
+        # Top-level keys must match Contract 5 EXACTLY
+        expected_top_keys = {"truck_id", "decision", "reasoning", "risk_factors"}
+        self.assertEqual(set(out.keys()), expected_top_keys)
+        self.assertNotIn("shelf_life_status", out)
+
+        # Risk factor keys must match Contract 5 EXACTLY
+        expected_rf_keys = {"shelf_life_ok", "cost_ok", "eta_ok", "safety_ok"}
+        self.assertEqual(set(out["risk_factors"].keys()), expected_rf_keys)
+
+        # All risk factors must be booleans
+        for key, val in out["risk_factors"].items():
+            self.assertIsInstance(val, bool, f"Risk factor {key} should be bool")
 
 
 def run_tests():

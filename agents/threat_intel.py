@@ -170,44 +170,17 @@ class GeminiThreatAnalyzer:
     @staticmethod
     def query_gemini_api(prompt_text: str, timeout: float = 6.0) -> str:
         """
-        Sends prompt to Gemini REST API endpoint.
-        Supports GEMINI_API_KEY or GOOGLE_API_KEY environment variables.
+        Sends prompt to Gemini using the shared Gemini client service.
         """
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError("No GEMINI_API_KEY configured in environment.")
-
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": SYSTEM_PROMPT},
-                        {"text": prompt_text}
-                    ]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.1,
-                "responseMimeType": "application/json"
-            }
-        }
-
-        req_data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=req_data,
-            headers={"Content-Type": "application/json"}
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            if response.status != 200:
-                raise RuntimeError(f"Gemini API returned HTTP status {response.status}")
-            res_json = json.loads(response.read().decode("utf-8"))
-
+        from services.gemini_client import generate
         try:
-            return res_json["candidates"][0]["content"]["parts"][0]["text"]
-        except (KeyError, IndexError) as e:
-            raise ValueError(f"Malformed response structure from Gemini API: {e}")
+            return generate(
+                prompt=prompt_text,
+                system_instruction=SYSTEM_PROMPT,
+                temperature=0.1
+            )
+        except Exception as e:
+            raise RuntimeError(f"Gemini API call failed: {e}") from e
 
     @classmethod
     def analyze_evidence_with_ai(
@@ -259,10 +232,11 @@ class GeminiThreatAnalyzer:
 def assess_threat(truck_data: Dict[str, Any], force_api_failure: bool = False) -> Dict[str, Any]:
     """
     Public entry point for Threat Intelligence Agent.
-    Assesses threat intelligence for a truck, attempting live AI reasoning over evidence first,
+    Assesses threat intelligence for a truck, attempting AI reasoning over deterministic mock evidence first,
     and falling back gracefully to mock_disruptions.json or safe defaults on failure.
 
     Guarantees strict 12-field output contract backward compatibility.
+    Does NOT require external Web Search API keys for normal execution.
     """
     truck_id = truck_data.get("truck_id", "UNKNOWN")
 
@@ -270,19 +244,30 @@ def assess_threat(truck_data: Dict[str, Any], force_api_failure: bool = False) -
     if "disruption" in truck_data and isinstance(truck_data["disruption"], dict):
         return ContractValidator.validate_and_format(truck_data["disruption"], truck_id)
 
-    # 2. Attempt Live Search + Gemini AI Reasoning Pipeline
+    # 2. Attempt Deterministic Evidence Loading + Gemini AI Reasoning Pipeline
     if not force_api_failure and not os.getenv("FORCE_THREAT_INTEL_API_FAILURE"):
         try:
-            current_location = str(truck_data.get("current_location") or truck_data.get("location", ""))
-            destination = str(truck_data.get("destination", ""))
+            mock_disruptions = EvidenceCollector.load_mock_disruptions()
+            mock_item = mock_disruptions.get(truck_id)
 
-            evidence_items = EvidenceCollector.query_web_search_api(current_location, destination)
-            if evidence_items:
-                ai_result = GeminiThreatAnalyzer.analyze_evidence_with_ai(truck_data, evidence_items)
-                if ai_result:
-                    return ContractValidator.validate_and_format(ai_result, truck_id)
+            if mock_item:
+                evidence_items = [{
+                    "title": f"Route Disruption Alert for {truck_id}",
+                    "snippet": str(mock_item.get("description", "Potential corridor disruption reported")),
+                    "source_url": str(mock_item.get("source", "mock_disruptions.json"))
+                }]
+            else:
+                evidence_items = [{
+                    "title": f"Route Telemetry Check for {truck_id}",
+                    "snippet": "No active route disruptions reported along corridor",
+                    "source_url": "mock_disruptions.json"
+                }]
+
+            ai_result = GeminiThreatAnalyzer.analyze_evidence_with_ai(truck_data, evidence_items)
+            if ai_result:
+                return ContractValidator.validate_and_format(ai_result, truck_id)
         except Exception:
-            # Fallback path: Web Search API key missing/failed OR Gemini API key missing/failed
+            # Fallback path: Gemini API key missing/failed or execution error
             pass
 
     # 3. Deterministic Fallback: Load scenario record from data/mock_disruptions.json

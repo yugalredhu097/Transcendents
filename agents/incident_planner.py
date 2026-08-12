@@ -22,7 +22,6 @@ DEFAULT_FIXED_OVERHEAD = 200.0
 DEFAULT_STOPPAGE_PENALTY_PER_HOUR = 500.0
 DEFAULT_STORAGE_COST_PER_HOUR = 300.0
 DEFAULT_HANDLING_COST = 1000.0
-DEFAULT_SHELF_LIFE_HOURS = 6.0
 
 VALID_RECOMMENDED_ACTIONS = {
     "reroute",
@@ -147,6 +146,8 @@ class ContextBuilder:
 
         # Cargo & SLA constraints
         cargo_type = fleet_output.get("cargo_type") or dispatch_data.get("cargo_type") or "Standard Freight"
+        # Cargo & SLA constraints
+        cargo_type = fleet_output.get("cargo_type") or dispatch_data.get("cargo_type") or "Standard Freight"
         cargo_lower = cargo_type.lower()
         is_temp_sensitive = any(w in cargo_lower for w in ["vaccine", "pharmaceutical", "pharma", "seafood", "frozen", "produce", "perishable"])
         is_hazmat = any(w in cargo_lower for w in ["hazard", "chemical", "hazmat", "explosive", "fuel"])
@@ -154,15 +155,17 @@ class ContextBuilder:
         deadline_hours = float(fleet_output.get("deadline_hours_remaining") or dispatch_data.get("deadline_hours_remaining") or 4.0)
         customer_priority = str(fleet_output.get("customer_priority") or dispatch_data.get("customer_priority") or "medium").lower()
 
-        # Inferred cargo shelf life remaining
-        if "vaccine" in cargo_lower:
-            shelf_life_hours = float(fleet_output.get("shelf_life_hours") or 6.0)
-        elif "seafood" in cargo_lower or "frozen" in cargo_lower:
-            shelf_life_hours = float(fleet_output.get("shelf_life_hours") or 5.0)
-        elif is_temp_sensitive:
-            shelf_life_hours = float(fleet_output.get("shelf_life_hours") or 8.0)
-        else:
-            shelf_life_hours = float(fleet_output.get("shelf_life_hours") or 24.0)
+        # Explicit remaining shelf life (do NOT fabricate values if missing)
+        raw_shelf_life = fleet_output.get("shelf_life_hours")
+        if raw_shelf_life is None:
+            raw_shelf_life = dispatch_data.get("shelf_life_hours")
+
+        shelf_life_hours: Optional[float] = None
+        if raw_shelf_life is not None:
+            try:
+                shelf_life_hours = float(raw_shelf_life)
+            except (ValueError, TypeError):
+                shelf_life_hours = None
 
         # Disruption details
         is_threat = (
@@ -240,7 +243,8 @@ class CandidateEvaluator:
         is_threat = context["is_threat"]
         fleet_output = context["fleet_output"]
         threat_output = context["threat_output"]
-        shelf_life = context["shelf_life_hours"]
+        shelf_life = context["shelf_life_hours"]  # Optional[float]
+        shelf_life_known = (shelf_life is not None)
         deadline = context["deadline_hours"]
 
         # Attempt OSRM route for reroute option
@@ -275,6 +279,8 @@ class CandidateEvaluator:
             stoppage_penalty = penalty_rate * (stoppage_min / 60.0)
             cost_reroute = round(base_cost + stoppage_penalty, 2)
 
+        shelf_life_ok_reroute = (delay_reroute <= shelf_life) if shelf_life_known else True
+
         options.append(
             CandidateOption(
                 action="reroute",
@@ -283,7 +289,8 @@ class CandidateEvaluator:
                 estimated_delay_hours=delay_reroute,
                 estimated_cost=cost_reroute,
                 description=f"Reroute via alternate corridor ({dist_km} km, {dur_min} min).",
-                shelf_life_ok=delay_reroute <= shelf_life,
+                # True here must not be interpreted as verified shelf-life safety when shelf life is unknown.
+                shelf_life_ok=shelf_life_ok_reroute,
                 deadline_ok=delay_reroute <= deadline,
                 score=cost_reroute + (delay_reroute * 50),
             )
@@ -296,6 +303,7 @@ class CandidateEvaluator:
         wait_dur_min = round(predicted_wait_h * 60.0, 1)
         penalty_per_h = float(fleet_output.get("delay_penalty_per_hour", DEFAULT_STOPPAGE_PENALTY_PER_HOUR))
         wait_cost = round((predicted_wait_h * penalty_per_h) + 150.0, 2)
+        shelf_life_ok_wait = (predicted_wait_h <= shelf_life) if shelf_life_known else True
 
         options.append(
             CandidateOption(
@@ -305,9 +313,10 @@ class CandidateEvaluator:
                 estimated_delay_hours=predicted_wait_h,
                 estimated_cost=wait_cost,
                 description=f"Wait out disruption at current site (~{predicted_wait_h}h).",
-                shelf_life_ok=predicted_wait_h <= shelf_life,
+                # True here must not be interpreted as verified shelf-life safety when shelf life is unknown.
+                shelf_life_ok=shelf_life_ok_wait,
                 deadline_ok=predicted_wait_h <= deadline,
-                score=wait_cost + (predicted_wait_h * 300) + 1500 + (0 if predicted_wait_h <= shelf_life else 5000),
+                score=wait_cost + (predicted_wait_h * 300) + 1500 + (0 if shelf_life_ok_wait else 5000),
             )
         )
 
@@ -347,6 +356,7 @@ class CandidateEvaluator:
         handling_fee = 800.0
         xfer_cost = round(dispatch_fee + handling_fee + 250.0, 2)
         xfer_delay_h = 2.0
+        shelf_life_ok_xfer = (xfer_delay_h <= shelf_life) if shelf_life_known else True
 
         options.append(
             CandidateOption(
@@ -356,7 +366,8 @@ class CandidateEvaluator:
                 estimated_delay_hours=xfer_delay_h,
                 estimated_cost=xfer_cost,
                 description="Cross-dock cargo onto secondary relief vehicle at current location.",
-                shelf_life_ok=xfer_delay_h <= shelf_life,
+                # True here must not be interpreted as verified shelf-life safety when shelf life is unknown.
+                shelf_life_ok=shelf_life_ok_xfer,
                 deadline_ok=xfer_delay_h <= deadline,
                 score=xfer_cost + (xfer_delay_h * 200) + 1000,
             )
@@ -382,8 +393,13 @@ class PromptBuilder:
         "1. Compare candidate options based on cargo preservation, safety, contractual deadlines, and cost.\n"
         "2. Select the single best recommended_action from candidate actions: 'reroute', 'wait', 'transfer_to_storage', or 'transfer_to_another_vehicle'.\n"
         "3. Do NOT calculate distances, delays, or costs yourself. Use the exact numeric values provided for your selected action.\n"
-        "4. Provide professional, detailed operational reasoning explaining trade-offs (e.g. why rerouting protects cold-chain vs waiting, or why storage is needed when deadline is tight).\n"
-        "5. Output MUST be valid JSON matching Contract 4 schema ONLY. Do NOT wrap in markdown or add extra fields.\n\n"
+        "4. Provide professional, detailed operational reasoning explaining trade-offs.\n"
+        "5. SHELF LIFE RULES:\n"
+        "   - If remaining_shelf_life_hours is provided (known), evaluate whether candidate action delay exceeds remaining shelf life.\n"
+        "   - If remaining_shelf_life_hours is null or shelf_life_status is 'unknown', explicitly acknowledge in your reasoning that remaining shelf-life information is unavailable and cannot be verified.\n"
+        "   - NEVER invent, guess, or assume a numeric shelf life when remaining_shelf_life_hours is null/unknown.\n"
+        "   - Do NOT claim that a plan is safe with respect to shelf life when shelf-life information is unavailable.\n"
+        "6. Output MUST be valid JSON matching Contract 4 schema ONLY. Do NOT wrap in markdown or add extra fields.\n\n"
         "REQUIRED JSON OUTPUT CONTRACT:\n"
         "{\n"
         '  "truck_id": "<str>",\n'
@@ -403,6 +419,9 @@ class PromptBuilder:
         cls, context: Dict[str, Any], candidates: List[CandidateOption]
     ) -> str:
         """Formats structured context and candidates into the user prompt."""
+        sl_hours = context["shelf_life_hours"]
+        sl_known = (sl_hours is not None)
+
         candidate_summary = []
         for cand in candidates:
             candidate_summary.append({
@@ -412,7 +431,8 @@ class PromptBuilder:
                 "estimated_delay_hours": cand.estimated_delay_hours,
                 "estimated_cost": cand.estimated_cost,
                 "description": cand.description,
-                "shelf_life_ok": cand.shelf_life_ok,
+                "shelf_life_ok": cand.shelf_life_ok if sl_known else None,
+                "shelf_life_status": "known" if sl_known else "unknown",
                 "deadline_ok": cand.deadline_ok,
             })
 
@@ -428,12 +448,14 @@ class PromptBuilder:
                 "cargo_type": context["cargo_type"],
                 "is_temperature_sensitive": context["is_temp_sensitive"],
                 "is_hazmat": context["is_hazmat"],
-                "remaining_shelf_life_hours": context["shelf_life_hours"],
+                "remaining_shelf_life_hours": sl_hours,
+                "shelf_life_status": "known" if sl_known else "unknown",
                 "deadline_hours_remaining": context["deadline_hours"],
                 "customer_priority": context["customer_priority"],
             },
             "evaluated_candidate_actions": candidate_summary,
         }
+
 
         if context.get("is_replan"):
             payload["replan_notice"] = {
@@ -461,33 +483,42 @@ class JSONValidator:
         if not isinstance(data, dict):
             return False, None
 
-        required_keys = ["truck_id", "recommended_action", "reasoning", "estimated_delay_hours", "estimated_cost", "alternative_route"]
-        for k in required_keys:
-            if k not in data:
-                return False, None
+        action = str(data.get("recommended_action") or data.get("selected_action") or "").lower()
+        if action in ("transfer", "warehouse_storage", "warehouse storage"):
+            action = "transfer_to_storage"
 
-        action = str(data["recommended_action"]).lower()
         if action not in VALID_RECOMMENDED_ACTIONS:
             return False, None
 
-        reasoning = str(data["reasoning"])
+        reasoning = str(data.get("reasoning", ""))
         if len(reasoning) < 10:
             return False, None
 
+        truck_id = str(data.get("truck_id") or context.get("truck_id", "UNKNOWN"))
+
+        candidates = CandidateEvaluator.evaluate_candidates(context) if context else []
+        matching_cand = next((c for c in candidates if c.action == action), None)
+
         alt_route = data.get("alternative_route")
-        if not isinstance(alt_route, dict) or "distance_km" not in alt_route or "duration_min" not in alt_route:
-            return False, None
+        if not isinstance(alt_route, dict):
+            if matching_cand:
+                alt_route = {
+                    "distance_km": matching_cand.distance_km,
+                    "duration_min": matching_cand.duration_min
+                }
+            else:
+                alt_route = {"distance_km": 0, "duration_min": 0}
 
         try:
-            delay_h = float(data["estimated_delay_hours"])
-            cost = float(data["estimated_cost"])
-            dist_km = float(alt_route["distance_km"])
-            dur_min = float(alt_route["duration_min"])
+            delay_h = float(data.get("estimated_delay_hours") or data.get("estimated_eta") or (matching_cand.estimated_delay_hours if matching_cand else 0.0))
+            cost = float(data.get("estimated_cost") or (matching_cand.estimated_cost if matching_cand else 0.0))
+            dist_km = float(alt_route.get("distance_km", 0.0))
+            dur_min = float(alt_route.get("duration_min", 0.0))
         except (ValueError, TypeError):
             return False, None
 
         cleaned = {
-            "truck_id": str(data["truck_id"]),
+            "truck_id": truck_id,
             "recommended_action": action,
             "reasoning": reasoning,
             "estimated_delay_hours": delay_h if delay_h % 1 != 0 else int(delay_h),
@@ -501,52 +532,24 @@ class JSONValidator:
 
 
 class LLMClient:
-    """Handles REST interactions with Gemini API."""
+    """Handles interaction with Gemini API using the shared Gemini client service."""
 
     @classmethod
     def call_gemini(cls, system_prompt: str, user_prompt: str, timeout: float = 5.0) -> Optional[str]:
         """
-        Invokes Gemini API via HTTP POST using GEMINI_API_KEY or GOOGLE_API_KEY.
+        Invokes Gemini API via shared services.gemini_client.
         Returns raw text response or None on failure/timeout.
         """
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not api_key:
-            return None
-
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-        payload = {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": f"{system_prompt}\n\n{user_prompt}"}],
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.2,
-                "responseMimeType": "application/json",
-            },
-        }
-
+        from services.gemini_client import generate
         try:
-            req_data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                url,
-                data=req_data,
-                headers={"Content-Type": "application/json"},
-                method="POST",
+            return generate(
+                prompt=user_prompt,
+                system_instruction=system_prompt,
+                temperature=0.2
             )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                if resp.status == 200:
-                    result = json.loads(resp.read().decode("utf-8"))
-                    candidates = result.get("candidates") or []
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        if parts:
-                            return parts[0].get("text", "")
         except Exception as e:
-            logger.debug(f"Gemini API call failed: {e}")
-
-        return None
+            logger.debug(f"Gemini API call failed via shared client: {e}")
+            return None
 
 
 # ============================================================================
@@ -627,12 +630,15 @@ class PlanningService:
         location = context["location"]
         action = top_cand.action
 
+        shelf_life_clause = f"and shelf-life limit of {shelf_life_h}h." if shelf_life_h is not None else "(cargo shelf-life unspecified)."
+        storage_shelf_clause = f"With {shelf_life_h}h safe transport remaining vs {predicted_delay_h}h delay" if shelf_life_h is not None else f"Due to {predicted_delay_h}h expected disruption delay"
+
         if action == "reroute":
             if context["is_threat"]:
                 reasoning = (
                     f"{disruption_type} reported near {location} with ~{predicted_delay_h}h expected disruption. "
                     f"Rerouting via alternate highway adds {top_cand.estimated_delay_hours}h delay (costing ${top_cand.estimated_cost:g}), "
-                    f"staying comfortably within cargo deadline window of {deadline_h}h and shelf-life limit of {shelf_life_h}h."
+                    f"staying comfortably within cargo deadline window of {deadline_h}h {shelf_life_clause}"
                 )
             else:
                 stoppage_min = int(context["fleet_output"].get("stoppage_duration_min", 45))
@@ -644,8 +650,7 @@ class PlanningService:
         elif action == "transfer_to_storage":
             reasoning = (
                 f"{disruption_type} near {location} threatens temperature-sensitive {cargo_type}. "
-                f"With only {shelf_life_h}h safe transport remaining vs {predicted_delay_h}h delay, "
-                f"transferring cargo to climate-controlled storage hub ensures preservation (costing ${top_cand.estimated_cost:g})."
+                f"{storage_shelf_clause}, transferring cargo to climate-controlled storage hub ensures preservation (costing ${top_cand.estimated_cost:g})."
             )
         elif action == "transfer_to_another_vehicle":
             reasoning = (
