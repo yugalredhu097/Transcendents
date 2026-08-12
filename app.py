@@ -7,6 +7,10 @@ import os
 import json
 import streamlit as st
 from typing import Dict, Any
+from dotenv import load_dotenv
+
+# Load environment variables once at application start
+load_dotenv()
 
 # 1. Import all five real agent functions
 from agents.fleet_monitor import detect_disruption
