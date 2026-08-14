@@ -223,60 +223,30 @@ def render_human_approval(res: Dict[str, Any]):
         st.error("⚠️ Plan could not achieve Risk Critic approval. Escalated to senior dispatch manager.")
 
 
+from ui.dashboard import render_command_center_dashboard
+
+
 def main():
     st.set_page_config(
-        page_title="AI Logistics Incident Commander",
+        page_title="LOGISTICS INCIDENT COMMANDER",
         page_icon="🚚",
         layout="wide",
+        initial_sidebar_state="expanded",
     )
-    st.title("🚚 AI Logistics Incident Commander")
-    st.caption("Autonomous Multi-Agent Disruption Commander")
 
-    # Piece 2: Truck Selector UI
     fleet_data = load_fleet_data()
     if not fleet_data:
         st.error("No fleet data loaded from data/mock_fleet.json")
         return
 
-    st.subheader("1. Fleet Shipment Selection")
-
-    truck_options = {}
-    for truck in fleet_data:
-        tid = truck.get("truck_id", "UNKNOWN")
-        status = truck.get("status", "normal")
-        delay = truck.get("delay_minutes", 0)
-
-        if status == "abnormal_stop" or delay > 30:
-            label = f"{tid} — Reactive Stoppage (T107)"
-        elif tid == "TRK-104":
-            label = f"{tid} — Proactive Threat (T112)"
-        else:
-            label = f"{tid} — Normal Operations"
-
-        truck_options[label] = truck
-
-    selected_label = st.selectbox("Select Active Truck to Analyze:", list(truck_options.keys()))
-    selected_truck = truck_options[selected_label]
-
-    # Telemetry Summary
-    st.markdown("### 📊 Raw Telemetry Stream")
-    col1, col2, col3, col4 = st.columns(4)
-
-    loc = selected_truck.get("location")
-    loc_name = loc.get("name") if isinstance(loc, dict) else selected_truck.get("location_name", "Unknown")
-
-    col1.metric("Truck ID", selected_truck.get("truck_id"))
-    col2.metric("Cargo Type", selected_truck.get("cargo_type", "N/A"))
-    col3.metric("Current Location", loc_name)
-    col4.metric("Destination", selected_truck.get("destination", "N/A"))
-
-    # Piece 3, 4, 5: Pipeline & Thought Stream
-    pipeline_result = run_pipeline(selected_truck)
-    render_thought_stream(pipeline_result)
-
-    # Piece 6: Human Approval Step
-    render_human_approval(pipeline_result)
+    render_command_center_dashboard(
+        fleet_data=fleet_data,
+        pipeline_runner_fn=run_pipeline,
+        thought_stream_fn=render_thought_stream,
+        human_approval_fn=render_human_approval,
+    )
 
 
 if __name__ == "__main__":
     main()
+
