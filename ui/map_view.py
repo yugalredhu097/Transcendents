@@ -11,6 +11,7 @@ Phase 7 Overhaul: Precision Local Rerouting, Origin Marker & Map-Local Legend
 """
 
 import json
+import math
 import os
 import urllib.request
 import folium
@@ -23,6 +24,20 @@ from typing import Dict, Any, List, Optional, Tuple
 
 FACILITIES_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "facilities.json")
 DISRUPTIONS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "mock_disruptions.json")
+
+# Authoritative Affected-Area Routing & Clearance Constants
+AFFECTED_RADIUS_KM = 14.0
+TARGET_BYPASS_ANCHOR_DIST_KM = 4.0  # 3-5 km target before and after incident
+MIN_DEVIATION_KM = 0.50             # Minimum lateral deviation >= 500m
+PEAK_DEVIATION_KM = 1.00            # Peak lateral deviation >= 1.0 km
+MIN_DEVIATED_RATIO = 0.40           # At least 40% of points must deviate >= 500m
+MIN_INCIDENT_CLEARANCE_KM = 0.40    # Clearance from exact disruption center >= 400m
+
+# Backward compatibility aliases
+REROUTE_CLEARANCE_KM = 1.0
+MIN_CLEARANCE_KM = AFFECTED_RADIUS_KM + REROUTE_CLEARANCE_KM  # 15.0 km
+MIN_REROUTE_SEPARATION_KM = 2.0
+MIN_SEPARATION_RATIO = 0.80
 
 # Authoritative City Coordinates Mapping for India Logistics Corridors
 CITY_COORDINATES = {
@@ -236,27 +251,22 @@ def resolve_origin_coordinates(truck: Dict[str, Any]) -> Optional[Tuple[float, f
 def resolve_destination_coordinates(
     destination_str: str,
     facilities_data: List[Dict[str, Any]],
-    prefer_cold_storage: bool = False,
 ) -> Optional[Tuple[float, float]]:
     """
-    Resolves semantically correct destination coordinates for detour or original route.
-    1. Checks if prefer_cold_storage is requested (action == transfer_to_storage), finds cold storage facility.
-    2. Checks if destination_str matches facility name or location_name in facilities_data.
-    3. Checks CITY_COORDINATES dictionary.
+    Resolves semantically correct destination coordinates for original route or mapping.
+    1. Checks if destination_str matches facility name or location_name in facilities_data.
+    2. Checks CITY_COORDINATES dictionary.
+    Does NOT force fallback to arbitrary cold storage or default facilities.
     """
-    if prefer_cold_storage:
-        for fac in facilities_data:
-            if fac.get("supports_perishable_cargo") or "cold" in str(fac.get("type", "")).lower() or "cold" in str(fac.get("name", "")).lower():
-                lat, lng = fac.get("latitude"), fac.get("longitude")
-                if lat is not None and lng is not None:
-                    return (float(lat), float(lng))
+    dest_lower = str(destination_str).lower().strip()
+    if not dest_lower:
+        return None
 
     # Match by facility name or location
-    dest_lower = str(destination_str).lower()
     for fac in facilities_data:
         name = str(fac.get("name", "")).lower()
         loc = str(fac.get("location_name", "")).lower()
-        if dest_lower and (dest_lower in name or dest_lower in loc):
+        if dest_lower and (dest_lower in name or dest_lower in loc or name in dest_lower):
             lat, lng = fac.get("latitude"), fac.get("longitude")
             if lat is not None and lng is not None:
                 return (float(lat), float(lng))
@@ -266,24 +276,16 @@ def resolve_destination_coordinates(
         if city_key in dest_lower:
             return coords
 
-    # Default to first facility if available
-    if facilities_data:
-        fac = facilities_data[0]
-        lat, lng = fac.get("latitude"), fac.get("longitude")
-        if lat is not None and lng is not None:
-            return (float(lat), float(lng))
-
     return None
 
 
 def resolve_truck_destination_coordinates(
     truck: Dict[str, Any],
     facilities_data: List[Dict[str, Any]],
-    prefer_cold_storage: bool = False,
 ) -> Optional[Tuple[float, float]]:
     """
     Resolves final shipment destination coordinates.
-    First checks truck's destination_location object, then destination string, then facilities/cities.
+    First checks truck's destination_location object (authoritative), then destination string, then facilities/cities.
     """
     dest_loc = truck.get("destination_location")
     if isinstance(dest_loc, dict):
@@ -295,7 +297,7 @@ def resolve_truck_destination_coordinates(
                 pass
 
     dest_str = str(truck.get("destination", ""))
-    return resolve_destination_coordinates(dest_str, facilities_data, prefer_cold_storage=prefer_cold_storage)
+    return resolve_destination_coordinates(dest_str, facilities_data)
 
 
 def _find_closest_point_index(route: List[List[float]], target: Tuple[float, float]) -> int:
@@ -311,6 +313,288 @@ def _find_closest_point_index(route: List[List[float]], target: Tuple[float, flo
             min_dist_sq = dist_sq
             closest_idx = i
     return closest_idx
+
+
+def haversine_km(coord1: Tuple[float, float], coord2: Tuple[float, float]) -> float:
+    """Calculates haversine distance in kilometers between two (lat, lng) points."""
+    lat1, lon1 = math.radians(coord1[0]), math.radians(coord1[1])
+    lat2, lon2 = math.radians(coord2[0]), math.radians(coord2[1])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = math.sin(dlat / 2.0) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2.0) ** 2
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+    return 6371.0 * c
+
+
+def find_geographic_bypass_anchors(
+    full_orig_route: List[List[float]],
+    dis_coords: Tuple[float, float],
+    target_dist_km: float = TARGET_BYPASS_ANCHOR_DIST_KM,
+) -> Tuple[int, int]:
+    """
+    Finds bypass start and end indices along full_orig_route such that
+    bypass_start is ~target_dist_km (3-5 km) BEFORE the incident along route,
+    and bypass_end is ~target_dist_km (3-5 km) AFTER the incident along route.
+    Uses cumulative haversine distance along route polyline.
+    """
+    if not full_orig_route or len(full_orig_route) < 2:
+        return 0, 0
+
+    incident_idx = _find_closest_point_index(full_orig_route, dis_coords)
+
+    # Walk backward from incident_idx accumulating distance
+    start_idx = incident_idx
+    cum_dist_back = 0.0
+    while start_idx > 0:
+        prev_pt = full_orig_route[start_idx]
+        next_pt = full_orig_route[start_idx - 1]
+        dist = haversine_km((prev_pt[0], prev_pt[1]), (next_pt[0], next_pt[1]))
+        cum_dist_back += dist
+        start_idx -= 1
+        if cum_dist_back >= target_dist_km:
+            break
+
+    # Walk forward from incident_idx accumulating distance
+    end_idx = incident_idx
+    cum_dist_fwd = 0.0
+    n = len(full_orig_route)
+    while end_idx < n - 1:
+        prev_pt = full_orig_route[end_idx]
+        next_pt = full_orig_route[end_idx + 1]
+        dist = haversine_km((prev_pt[0], prev_pt[1]), (next_pt[0], next_pt[1]))
+        cum_dist_fwd += dist
+        end_idx += 1
+        if cum_dist_fwd >= target_dist_km:
+            break
+
+    return start_idx, end_idx
+
+
+def find_affected_area_bypass_anchors(
+    full_orig_route: List[List[float]],
+    dis_coords: Tuple[float, float],
+    min_clearance_km: float = MIN_CLEARANCE_KM,
+) -> Tuple[int, int]:
+    """
+    Finds bypass start and end indices along full_orig_route such that anchor points
+    bypass_start and bypass_end are outside min_clearance_km (15.0 km) from dis_coords.
+    """
+    if not full_orig_route:
+        return 0, 0
+
+    incident_idx = _find_closest_point_index(full_orig_route, dis_coords)
+
+    # Walk backwards along route until point is at least min_clearance_km from dis_coords
+    start_idx = incident_idx
+    while start_idx > 0:
+        pt = (full_orig_route[start_idx][0], full_orig_route[start_idx][1])
+        if haversine_km(pt, dis_coords) >= min_clearance_km:
+            break
+        start_idx -= 1
+
+    # Walk forwards along route until point is at least min_clearance_km from dis_coords
+    end_idx = incident_idx
+    n = len(full_orig_route)
+    while end_idx < n - 1:
+        pt = (full_orig_route[end_idx][0], full_orig_route[end_idx][1])
+        if haversine_km(pt, dis_coords) >= min_clearance_km:
+            break
+        end_idx += 1
+
+    return start_idx, end_idx
+
+
+def find_bypass_anchors(
+    full_orig_route: List[List[float]],
+    dis_coords: Tuple[float, float],
+    target_dist_km: float = MIN_CLEARANCE_KM,
+) -> Tuple[int, int]:
+    """Alias for find_affected_area_bypass_anchors maintaining backward compatibility."""
+    return find_affected_area_bypass_anchors(full_orig_route, dis_coords, min_clearance_km=target_dist_km)
+
+
+def calculate_route_distance(route: List[List[float]]) -> float:
+    """Calculates total driving distance in kilometers along a route polyline."""
+    if not route or len(route) < 2:
+        return 0.0
+    total = 0.0
+    for i in range(len(route) - 1):
+        total += haversine_km((route[i][0], route[i][1]), (route[i + 1][0], route[i + 1][1]))
+    return total
+
+
+def validate_reroute_separation(
+    candidate_route: List[List[float]],
+    original_bypass_corridor: List[List[float]],
+    dis_coords: Tuple[float, float],
+    min_affected_radius_km: float = AFFECTED_RADIUS_KM,
+    min_separation_km: float = MIN_REROUTE_SEPARATION_KM,
+    min_separation_ratio: float = MIN_SEPARATION_RATIO,
+) -> bool:
+    """
+    Validates candidate reroute geometry against:
+    A. Affected-area clearance: EVERY candidate coordinate MUST satisfy
+       haversine_km(pt, dis_coords) >= min_affected_radius_km (14.0 km).
+    B. Original-route separation: Count candidate points whose minimum distance
+       to any point in original_bypass_corridor is >= min_separation_km (2.0 km).
+    """
+    if not candidate_route or not original_bypass_corridor:
+        return False
+
+    for pt in candidate_route:
+        if haversine_km((pt[0], pt[1]), dis_coords) < min_affected_radius_km:
+            return False
+
+    separated_points = 0
+    total_points = len(candidate_route)
+
+    for pt in candidate_route:
+        cand_tuple = (pt[0], pt[1])
+        min_dist_to_corridor = min(
+            haversine_km(cand_tuple, (c[0], c[1])) for c in original_bypass_corridor
+        )
+        if min_dist_to_corridor >= min_separation_km:
+            separated_points += 1
+
+    separation_ratio = separated_points / float(total_points)
+    return separation_ratio >= min_separation_ratio
+
+
+def generate_local_bypass_candidates(
+    bypass_start: List[float],
+    bypass_end: List[float],
+    dis_coords: Tuple[float, float],
+) -> List[Tuple[float, float]]:
+    """
+    Generates local candidate waypoints offset perpendicularly to the route segment
+    between bypass_start and bypass_end around dis_coords.
+    Offsets range from +/- 0.015 deg to +/- 0.09 deg (~1.5 km to 9 km lateral offset).
+    """
+    d_lat = bypass_end[0] - bypass_start[0]
+    d_lng = bypass_end[1] - bypass_start[1]
+    seg_len = math.sqrt(d_lat**2 + d_lng**2)
+
+    if seg_len > 1e-5:
+        u_lat = d_lat / seg_len
+        u_lng = d_lng / seg_len
+        p_lat = -u_lng
+        p_lng = u_lat
+    else:
+        p_lat, p_lng = 1.0, 0.0
+
+    offsets = [
+        0.015, -0.015,
+        0.025, -0.025,
+        0.035, -0.035,
+        0.050, -0.050,
+        0.070, -0.070,
+        0.090, -0.090,
+    ]
+
+    candidates = []
+    for off in offsets:
+        wp_lat = dis_coords[0] + p_lat * off
+        wp_lng = dis_coords[1] + p_lng * off
+        candidates.append((wp_lat, wp_lng))
+
+    return candidates
+
+
+def validate_local_bypass_candidate(
+    candidate_route: List[List[float]],
+    original_blocked_corridor: List[List[float]],
+    dis_coords: Tuple[float, float],
+    min_deviation_km: float = MIN_DEVIATION_KM,
+    peak_deviation_km: float = PEAK_DEVIATION_KM,
+    min_deviated_ratio: float = MIN_DEVIATED_RATIO,
+    min_incident_clearance_km: float = MIN_INCIDENT_CLEARANCE_KM,
+) -> bool:
+    """
+    Validates a candidate OSRM bypass route:
+    1. Incident clearance: Point near middle must not pass directly through disruption center (< 400m).
+    2. Meaningful lateral deviation: Count candidate points whose minimum distance to original_blocked_corridor is >= min_deviation_km (0.5 km).
+       Requires ratio of deviated points >= min_deviated_ratio (0.40) AND peak deviation >= peak_deviation_km (1.0 km).
+    """
+    if not candidate_route or len(candidate_route) < 3 or not original_blocked_corridor:
+        return False
+
+    # 1. Incident clearance check: Check minimum distance of any candidate point to dis_coords
+    min_dist_to_disruption = min(
+        haversine_km((pt[0], pt[1]), dis_coords) for pt in candidate_route
+    )
+    if min_dist_to_disruption < min_incident_clearance_km:
+        return False
+
+    # 2. Check lateral deviation from original_blocked_corridor
+    distances_to_corridor = []
+    for pt in candidate_route:
+        cand_tuple = (pt[0], pt[1])
+        min_d = min(haversine_km(cand_tuple, (c[0], c[1])) for c in original_blocked_corridor)
+        distances_to_corridor.append(min_d)
+
+    max_deviation = max(distances_to_corridor)
+    if max_deviation < peak_deviation_km:
+        return False
+
+    deviated_count = sum(1 for d in distances_to_corridor if d >= min_deviation_km)
+    deviated_ratio = deviated_count / float(len(candidate_route))
+
+    return deviated_ratio >= min_deviated_ratio
+
+
+def find_best_valid_local_bypass(
+    bypass_start: List[float],
+    bypass_end: List[float],
+    dis_coords: Tuple[float, float],
+    original_blocked_corridor: List[List[float]],
+) -> Optional[List[List[float]]]:
+    """
+    Evaluates all generated candidate waypoints, queries OSRM for driving routes,
+    validates candidate geometry, and returns the shortest valid alternate driving route.
+    Returns None if no candidate passes validation (fallback behavior: do NOT render fake line).
+    """
+    candidates = generate_local_bypass_candidates(bypass_start, bypass_end, dis_coords)
+
+    valid_routes: List[Tuple[float, List[List[float]]]] = []
+
+    for cand_wp in candidates:
+        r1 = fetch_osrm_route_geometry(tuple(bypass_start), cand_wp)
+        r2 = fetch_osrm_route_geometry(cand_wp, tuple(bypass_end))
+        full_cand = r1 + r2
+
+        if full_cand and len(full_cand) >= 4:
+            if validate_local_bypass_candidate(
+                candidate_route=full_cand,
+                original_blocked_corridor=original_blocked_corridor,
+                dis_coords=dis_coords,
+            ):
+                total_dist = calculate_route_distance(full_cand)
+                valid_routes.append((total_dist, full_cand))
+
+    if not valid_routes:
+        return None
+
+    # Pick the shortest valid driving route
+    valid_routes.sort(key=lambda x: x[0])
+    return valid_routes[0][1]
+
+
+def generate_best_local_bypass(
+    bypass_start: List[float],
+    bypass_end: List[float],
+    dis_coords: Tuple[float, float],
+    blocked_geom: List[List[float]],
+    min_clearance_km: float = MIN_CLEARANCE_KM,
+    original_bypass_corridor: Optional[List[List[float]]] = None,
+) -> Optional[List[List[float]]]:
+    """Backward compatibility alias for find_best_valid_local_bypass."""
+    corridor = original_bypass_corridor if original_bypass_corridor else blocked_geom
+    return find_best_valid_local_bypass(
+        bypass_start=bypass_start,
+        bypass_end=bypass_end,
+        dis_coords=dis_coords,
+        original_blocked_corridor=corridor,
+    )
 
 
 def find_relevant_facility(
@@ -402,9 +686,13 @@ def build_legend_html(is_post_analysis: bool = False) -> str:
             <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #3182CE; border: 2px solid #FFFFFF; box-shadow: 0 0 6px #3182CE;"></span>
             <span style="color: #E2E8F0;">Dispatch Origin (📍)</span>
         </div>
+        <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.3rem;">
+            <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #805AD5; border: 2px solid #FFFFFF; box-shadow: 0 0 6px #805AD5;"></span>
+            <span style="color: #E2E8F0;">Shipment Destination (🏁)</span>
+        </div>
         <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem;">
             <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #B794F4; box-shadow: 0 0 6px #B794F4;"></span>
-            <span>Destination / Logistics Hub (🏭)</span>
+            <span>Relevant Logistics Facility (🏭)</span>
         </div>
 
         <div style="font-weight: 700; color: #CBD5E0; font-size: 10px; text-transform: uppercase; margin-bottom: 0.3rem; letter-spacing: 0.05em;">ROUTES & HAZARDS</div>
@@ -435,7 +723,7 @@ def render_leaflet_map(
     """
     Renders the SELECTED TRUCK OPERATIONAL MAP using Folium.
     Phase 7 Requirements:
-    - Filters map strictly to selected_truck_id, its dispatch origin, its disruption, and its destination facility.
+    - Filters map strictly to selected_truck_id, its dispatch origin, its disruption, and its destination.
     - Pre-Analysis: Renders 🔵 Original Scheduled Route (Neon Blue) from Dispatch Origin → Truck Location → Destination.
     - Post-Analysis: Renders 🟢 AI Recommended Reroute (Neon Green Dashed) via precise local OSRM bypass anchored on original route polyline.
     - Renders 🔴 Blocked Segment (Neon Red) directly on original route polyline.
@@ -521,6 +809,53 @@ def render_leaflet_map(
         ).add_to(origin_group)
 
         origin_group.add_to(m)
+
+    # 2b. RENDER DISTINCT SHIPMENT DESTINATION MARKER
+    dest_coords = resolve_truck_destination_coordinates(selected_truck, facilities_data)
+    if dest_coords:
+        bounds_points.append(dest_coords)
+        dest_loc_obj = selected_truck.get("destination_location")
+        if isinstance(dest_loc_obj, dict) and dest_loc_obj.get("name"):
+            dest_name = dest_loc_obj.get("name")
+        else:
+            dest_name = str(selected_truck.get("destination", "Shipment Destination"))
+
+        shipment_id = selected_truck.get("shipment_id", "N/A")
+
+        dest_group = folium.FeatureGroup(name="Shipment Destination")
+
+        # Purple Outer Glow Ring (hazard_marker_pane: z-index 600)
+        folium.CircleMarker(
+            location=dest_coords,
+            radius=10,
+            color="#805AD5",
+            weight=2,
+            fill=True,
+            fill_color="#B794F4",
+            fill_opacity=0.4,
+            tooltip=f"🏁 DESTINATION: {dest_name}",
+            pane="hazard_marker_pane",
+        ).add_to(dest_group)
+
+        # Flag-checkered Icon Marker
+        popup_html = f"""
+        <div style="font-family: sans-serif; font-size: 12px; width: 200px; color: #1A202C;">
+            <b style="color: #6B46C1; font-size: 13px;">🏁 DESTINATION</b><br/>
+            <b>Name:</b> {dest_name}<br/>
+            <b>Shipment ID:</b> {shipment_id}<br/>
+            <b>Truck ID:</b> {selected_truck_id}
+        </div>
+        """
+
+        folium.Marker(
+            location=dest_coords,
+            popup=folium.Popup(popup_html, max_width=240),
+            tooltip=f"🏁 DESTINATION: {dest_name}",
+            icon=folium.Icon(color="purple", icon="flag-checkered", prefix="fa"),
+            pane="hazard_marker_pane",
+        ).add_to(dest_group)
+
+        dest_group.add_to(m)
 
     # 3. RENDER SELECTED TRUCK MARKER ONLY (No other fleet trucks)
     # Rendered inside 'truck_pane' (z-index 700) to sit above all disruption circles and polylines
@@ -639,7 +974,7 @@ def render_leaflet_map(
             # Translucent Red Affected Area Radius (disruption_pane: z-index 420)
             folium.Circle(
                 location=dis_coords,
-                radius=14000,
+                radius=int(AFFECTED_RADIUS_KM * 1000),
                 color="#FF0055",
                 weight=2,
                 fill=True,
@@ -661,7 +996,7 @@ def render_leaflet_map(
 
             disruption_group.add_to(m)
 
-    # 5. RENDER RELEVANT FACILITY ONLY
+    # 5. RENDER RELEVANT FACILITY ONLY (IF PRESENT & SEPARATE)
     rel_fac = find_relevant_facility(selected_truck, facilities_data, pipeline_result)
     if rel_fac:
         flat, flng = rel_fac.get("latitude"), rel_fac.get("longitude")
@@ -713,14 +1048,10 @@ def render_leaflet_map(
 
     # 6. STATE 1: PRE-ANALYSIS ORIGINAL ROUTE (Neon Blue) — RENDERS IMMEDIATELY UPON SELECTION
     plan = (pipeline_result.get("plan_data") if pipeline_result else {}) or {}
-    action = str(plan.get("action", "")).lower()
-    prefer_cold = (action == "transfer_to_storage" or "spoilage" in str(selected_truck.get("cargo_type", "")).lower())
-
-    dest_coords = resolve_truck_destination_coordinates(selected_truck, facilities_data, prefer_cold_storage=prefer_cold)
-    if dest_coords:
-        bounds_points.append(dest_coords)
 
     start_point = origin_coords if origin_coords else selected_coords
+
+    full_orig_route: List[List[float]] = []
 
     if start_point:
         # Calculate Original Scheduled Route from Dispatch Origin → Current Truck Pos → Incident → Destination
@@ -765,18 +1096,33 @@ def render_leaflet_map(
         if gate.get("escalate") and plan and dis_coords and full_orig_route:
             is_post_analysis = True
 
-            # Locate incident along original polyline
-            incident_idx = _find_closest_point_index(full_orig_route, dis_coords)
-            
-            # Anchor local bypass ~15 route points before and after incident
-            bypass_start_idx = max(0, incident_idx - 15)
-            bypass_end_idx = min(len(full_orig_route) - 1, incident_idx + 15)
+            # 1. Anchor local bypass ~3-5 km before and after incident using cumulative haversine distance
+            bypass_start_idx, bypass_end_idx = find_geographic_bypass_anchors(
+                full_orig_route, dis_coords, target_dist_km=TARGET_BYPASS_ANCHOR_DIST_KM
+            )
 
-            bypass_start = full_orig_route[bypass_start_idx]
-            bypass_end = full_orig_route[bypass_end_idx]
+            start_i = min(bypass_start_idx, bypass_end_idx)
+            end_i = max(bypass_start_idx, bypass_end_idx)
 
-            # A. DRAW BLOCKED ROUTE SEGMENT (Neon Red / Hazard Corridor) directly on original route
-            blocked_geom = full_orig_route[bypass_start_idx : bypass_end_idx + 1]
+            bypass_start = full_orig_route[start_i]
+            bypass_end = full_orig_route[end_i]
+            original_blocked_corridor = full_orig_route[start_i : end_i + 1]
+
+            # 2. Slice BLOCKED ROUTE SEGMENT: ONLY the portion of full_orig_route inside 14 km radius (AFFECTED_RADIUS_KM)
+            in_circle_indices = [
+                i for i, pt in enumerate(full_orig_route)
+                if haversine_km((pt[0], pt[1]), dis_coords) <= AFFECTED_RADIUS_KM
+            ]
+
+            if in_circle_indices:
+                b_start = max(0, in_circle_indices[0] - 1)
+                b_end = min(len(full_orig_route) - 1, in_circle_indices[-1] + 1)
+                blocked_geom = full_orig_route[b_start : b_end + 1]
+            else:
+                closest_idx = _find_closest_point_index(full_orig_route, dis_coords)
+                b_start = max(0, closest_idx - 1)
+                b_end = min(len(full_orig_route) - 1, closest_idx + 1)
+                blocked_geom = full_orig_route[b_start : b_end + 1]
 
             if len(blocked_geom) >= 2:
                 folium.PolyLine(
@@ -785,7 +1131,7 @@ def render_leaflet_map(
                     weight=14,
                     opacity=0.35,
                     tooltip="🔴 BLOCKED / AFFECTED CORRIDOR",
-                    pane="disruption_pane",
+                    pane="route_pane",
                 ).add_to(m)
                 folium.PolyLine(
                     blocked_geom,
@@ -793,37 +1139,31 @@ def render_leaflet_map(
                     weight=6,
                     opacity=0.90,
                     tooltip="🔴 BLOCKED / AFFECTED CORRIDOR",
-                    pane="disruption_pane",
+                    pane="route_pane",
                 ).add_to(m)
 
-            # B. PRECISE LOCAL REROUTE (Perpendicular local bypass via OSRM)
-            d_lat = bypass_end[0] - bypass_start[0]
-            d_lng = bypass_end[1] - bypass_start[1]
-            seg_len = (d_lat**2 + d_lng**2) ** 0.5
-
-            if seg_len > 0.0001:
-                p_lat = -d_lng / seg_len
-                p_lng = d_lat / seg_len
-                offset_mag = max(0.04, min(0.12, seg_len * 0.35))
-                detour_waypoint = (dis_coords[0] + p_lat * offset_mag, dis_coords[1] + p_lng * offset_mag)
-            else:
-                detour_waypoint = (dis_coords[0] + 0.06, dis_coords[1] + 0.06)
-
-            bounds_points.append(detour_waypoint)
-
-            local_bypass = fetch_osrm_route_geometry(tuple(bypass_start), detour_waypoint) + fetch_osrm_route_geometry(detour_waypoint, tuple(bypass_end))
-            
-            full_reroute = full_orig_route[:bypass_start_idx] + local_bypass + full_orig_route[bypass_end_idx + 1:]
-
-            add_glowing_polyline(
-                m,
-                full_reroute,
-                color="#00FF66",
-                tooltip_text="🟢 AI RECOMMENDED REROUTE",
-                dash_array="8, 8",
-                is_reroute=True,
-                pane="route_pane",
+            # 3. ROBUST MULTI-CANDIDATE LOCAL REROUTE SELECTION & VALIDATION VIA OSRM
+            local_bypass = find_best_valid_local_bypass(
+                bypass_start=bypass_start,
+                bypass_end=bypass_end,
+                dis_coords=dis_coords,
+                original_blocked_corridor=original_blocked_corridor,
             )
+
+            if local_bypass:
+                for pt in local_bypass:
+                    bounds_points.append((pt[0], pt[1]))
+
+                # Render ONLY the valid local bypass section in green dashed (do NOT recolor the entire route green)
+                add_glowing_polyline(
+                    m,
+                    local_bypass,
+                    color="#00FF66",
+                    tooltip_text="🟢 AI RECOMMENDED REROUTE",
+                    dash_array="8, 8",
+                    is_reroute=True,
+                    pane="route_pane",
+                )
 
     # 8. DYNAMIC AUTO-FRAMING BOUNDS (Strictly scoped to selected truck context)
     if bounds_points and len(bounds_points) >= 2:
