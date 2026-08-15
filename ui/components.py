@@ -250,6 +250,12 @@ def render_selected_truck_panel(truck: Dict[str, Any], disruptions: Dict[str, An
     """
     Renders detailed telemetry profile for a selected truck in the left column.
     CRITICAL RULE: If remaining_shelf_life_hours is null/None, display UNKNOWN.
+    Phase 7 Requirement: Explicit 2-Column Fixed Grid Ordering:
+    1. Priority                | Current Location
+    2. Cargo Type              | Quantity
+    3. Origin                  | Destination
+    4. Delivery Deadline       | Shelf Life
+    5. Speed / Delay           | Stopped Duration
     """
     st.markdown("### 🚚 Selected Truck Operations")
 
@@ -263,7 +269,22 @@ def render_selected_truck_panel(truck: Dict[str, Any], disruptions: Dict[str, An
     qty = truck.get("quantity", "N/A")
     unit = truck.get("unit", "")
     priority = truck.get("priority", "STANDARD")
-    dest = truck.get("destination", "N/A")
+
+    # Destination resolution (support object or string)
+    dest_raw = truck.get("destination_location")
+    if isinstance(dest_raw, dict):
+        dest = dest_raw.get("name", truck.get("destination", "N/A"))
+    else:
+        dest = truck.get("destination", "N/A")
+
+    # Origin resolution (support object or string)
+    origin_raw = truck.get("origin")
+    if isinstance(origin_raw, dict):
+        origin_name = origin_raw.get("name", "N/A")
+    elif isinstance(origin_raw, str):
+        origin_name = origin_raw
+    else:
+        origin_name = "N/A"
 
     loc = truck.get("location")
     loc_name = loc.get("name") if isinstance(loc, dict) else truck.get("location_name", "En-Route Segment")
@@ -290,68 +311,37 @@ def render_selected_truck_panel(truck: Dict[str, Any], disruptions: Dict[str, An
     else:
         shelf_life_display = "⚠ UNKNOWN"
 
+    # Priority and Shelf Life styling variables
+    priority_color = "#FEB2B2" if priority == "CRITICAL" else "#9DECF9"
+    shelf_border = "1px solid #E53E3E" if "UNKNOWN" in shelf_life_display else "1px solid #2B6CB0"
+    shelf_color = "#FEB2B2" if "UNKNOWN" in shelf_life_display else "#9DECF9"
+
     # Incident header banner if active incident
     if incident_info:
         st.markdown(
-            f"""
-            <div style="background-color: #2C1A1D; border-left: 4px solid #E53E3E; border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.6rem;">
-                <div style="font-weight: 800; color: #FEB2B2; font-size: 0.9rem;">🔴 INCIDENT DETECTED — {tid}</div>
-                <div style="font-size: 0.8rem; color: #E2E8F0; margin-top: 0.2rem;">
-                    <b>Type:</b> {dis_type} | <b>Severity:</b> {dis_severity}<br/>
-                    <b>Predicted Disruption:</b> {dis_pred}
-                </div>
-            </div>
-            """,
+            f"""<div style="background-color: #2C1A1D; border-left: 4px solid #E53E3E; border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.6rem;">
+<div style="font-weight: 800; color: #FEB2B2; font-size: 0.9rem;">🔴 INCIDENT DETECTED — {tid}</div>
+<div style="font-size: 0.8rem; color: #E2E8F0; margin-top: 0.2rem;"><b>Type:</b> {dis_type} | <b>Severity:</b> {dis_severity}<br/><b>Predicted Disruption:</b> {dis_pred}</div>
+</div>""",
             unsafe_allow_html=True,
         )
 
+    # 2-Column Telemetry Profile Grid (Single contiguous HTML block without blank lines to prevent Markdown escaping)
     st.markdown(
-        f"""
-        <div class="detail-panel">
-            <div style="font-weight: 800; font-size: 1rem; color: #F7FAFC; margin-bottom: 0.4rem;">
-                Telemetry Profile: <span style="color: #63B3ED;">{tid}</span> ({sid})
-            </div>
-            <div class="detail-grid">
-                <div class="detail-item">
-                    <div class="detail-label">Cargo Type</div>
-                    <div class="detail-value">{cargo}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Quantity</div>
-                    <div class="detail-value">{qty} {unit}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Priority</div>
-                    <div class="detail-value">{priority}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Destination</div>
-                    <div class="detail-value">{dest}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Current Location</div>
-                    <div class="detail-value" style="font-size: 0.78rem;">{loc_name}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Speed / Delay</div>
-                    <div class="detail-value">{speed} km/h (+{delay}m)</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Stopped Duration</div>
-                    <div class="detail-value">{stopped_min} mins</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Delivery Deadline</div>
-                    <div class="detail-value" style="font-size: 0.78rem;">{deadline}</div>
-                </div>
-                <div class="detail-item" style="border: 1px solid {'#E53E3E' if 'UNKNOWN' in shelf_life_display else '#2B6CB0'};">
-                    <div class="detail-label">Remaining Shelf Life</div>
-                    <div class="detail-value" style="color: {'#FEB2B2' if 'UNKNOWN' in shelf_life_display else '#9DECF9'};">
-                        {shelf_life_display}
-                    </div>
-                </div>
-            </div>
-        </div>
-        """,
+        f"""<div class="detail-panel">
+<div style="font-weight: 800; font-size: 1rem; color: #F7FAFC; margin-bottom: 0.4rem;">Telemetry Profile: <span style="color: #63B3ED;">{tid}</span> ({sid})</div>
+<div class="detail-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
+<div class="detail-item"><div class="detail-label">Priority</div><div class="detail-value" style="color: {priority_color};">{priority}</div></div>
+<div class="detail-item"><div class="detail-label">Current Location</div><div class="detail-value" style="font-size: 0.78rem;">{loc_name}</div></div>
+<div class="detail-item"><div class="detail-label">Cargo Type</div><div class="detail-value">{cargo}</div></div>
+<div class="detail-item"><div class="detail-label">Quantity</div><div class="detail-value">{qty} {unit}</div></div>
+<div class="detail-item"><div class="detail-label">Origin</div><div class="detail-value" style="font-size: 0.78rem;">{origin_name}</div></div>
+<div class="detail-item"><div class="detail-label">Destination</div><div class="detail-value" style="font-size: 0.78rem;">{dest}</div></div>
+<div class="detail-item"><div class="detail-label">Delivery Deadline</div><div class="detail-value" style="font-size: 0.78rem;">{deadline}</div></div>
+<div class="detail-item" style="border: {shelf_border};"><div class="detail-label">Remaining Shelf Life</div><div class="detail-value" style="color: {shelf_color};">{shelf_life_display}</div></div>
+<div class="detail-item"><div class="detail-label">Speed / Delay</div><div class="detail-value">{speed} km/h (+{delay}m)</div></div>
+<div class="detail-item"><div class="detail-label">Stopped Duration</div><div class="detail-value">{stopped_min} mins</div></div>
+</div>
+</div>""",
         unsafe_allow_html=True,
     )

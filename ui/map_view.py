@@ -1,10 +1,11 @@
 """
 Leaflet Map View Component using Folium and streamlit-folium
-Phase 6 Overhaul: Selected-Truck Operational Map & Render-Lifecycle Fix
-- Filters map strictly to selected truck, its active disruption, and its relevant destination facility.
-- Renders 🔵 Original Scheduled Route (Neon Blue) IMMEDIATELY upon selection before analysis.
-- Renders 🟢 AI Recommended Reroute (Neon Green Dashed) alongside 🔵 Original Route post-analysis.
-- Uses Leaflet dedicated Panes (z-index 420-700) for strict visual hierarchy (Truck sits above all overlays).
+Phase 7 Overhaul: Precision Local Rerouting, Origin Marker & Map-Local Legend
+- Filters map strictly to selected truck, dispatch origin, active disruption, and relevant destination facility.
+- Renders 🔵 Original Scheduled Route (Neon Blue) from Dispatch Origin → Truck Location → Destination.
+- Renders 🟢 AI Recommended Reroute (Neon Green Dashed) via precise local OSRM bypass anchored on original route polyline.
+- Renders 🔴 Blocked Segment (Neon Red) directly on the original route polyline at the disruption point.
+- Uses Leaflet dedicated Panes (z-index 420-700) for strict visual hierarchy.
 - Caches OSRM route geometry via @st.cache_data to prevent unnecessary network requests during map interaction.
 - Native Leaflet map-local control legend overlay positioned at top-right.
 """
@@ -31,6 +32,9 @@ CITY_COORDINATES = {
     "pune": (18.5204, 73.8567),
     "kalyan": (19.2403, 73.1305),
     "gurgaon": (28.4595, 77.0266),
+    "gurugram": (28.4595, 77.0266),
+    "sikar": (27.6094, 75.1398),
+    "rewari": (28.3500, 76.9000),
     "vadodara": (22.3072, 73.1812),
     "surat": (21.1702, 72.8311),
     "ahmedabad": (23.0225, 72.5714),
@@ -141,7 +145,7 @@ def fetch_osrm_route_geometry(
     end_lat, end_lng = round(float(end_coords[0]), 5), round(float(end_coords[1]), 5)
     url = f"http://router.project-osrm.org/route/v1/driving/{start_lng},{start_lat};{end_lng},{end_lat}?overview=full&geometries=geojson"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "LogisticsCommanderMap/6.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "LogisticsCommanderMap/7.0"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             if resp.status == 200:
                 data = json.loads(resp.read().decode("utf-8"))
@@ -207,6 +211,28 @@ def add_glowing_polyline(
     ).add_to(m)
 
 
+def resolve_origin_coordinates(truck: Dict[str, Any]) -> Optional[Tuple[float, float]]:
+    """
+    Resolves shipment dispatch origin coordinates.
+    1. Checks if truck possesses explicit origin object {"lat": ..., "lng": ...}.
+    2. Checks if origin is a string name matching CITY_COORDINATES or facilities.
+    """
+    origin = truck.get("origin")
+    if isinstance(origin, dict):
+        lat, lng = origin.get("lat"), origin.get("lng")
+        if lat is not None and lng is not None:
+            try:
+                return (float(lat), float(lng))
+            except (ValueError, TypeError):
+                pass
+    elif isinstance(origin, str):
+        origin_lower = origin.lower()
+        for city_key, coords in CITY_COORDINATES.items():
+            if city_key in origin_lower:
+                return coords
+    return None
+
+
 def resolve_destination_coordinates(
     destination_str: str,
     facilities_data: List[Dict[str, Any]],
@@ -250,6 +276,43 @@ def resolve_destination_coordinates(
     return None
 
 
+def resolve_truck_destination_coordinates(
+    truck: Dict[str, Any],
+    facilities_data: List[Dict[str, Any]],
+    prefer_cold_storage: bool = False,
+) -> Optional[Tuple[float, float]]:
+    """
+    Resolves final shipment destination coordinates.
+    First checks truck's destination_location object, then destination string, then facilities/cities.
+    """
+    dest_loc = truck.get("destination_location")
+    if isinstance(dest_loc, dict):
+        lat, lng = dest_loc.get("lat"), dest_loc.get("lng")
+        if lat is not None and lng is not None:
+            try:
+                return (float(lat), float(lng))
+            except (ValueError, TypeError):
+                pass
+
+    dest_str = str(truck.get("destination", ""))
+    return resolve_destination_coordinates(dest_str, facilities_data, prefer_cold_storage=prefer_cold_storage)
+
+
+def _find_closest_point_index(route: List[List[float]], target: Tuple[float, float]) -> int:
+    """Finds the index of the coordinate in route polyline closest to target (lat, lng)."""
+    if not route:
+        return 0
+    t_lat, t_lng = target
+    min_dist_sq = float("inf")
+    closest_idx = 0
+    for i, pt in enumerate(route):
+        dist_sq = (pt[0] - t_lat) ** 2 + (pt[1] - t_lng) ** 2
+        if dist_sq < min_dist_sq:
+            min_dist_sq = dist_sq
+            closest_idx = i
+    return closest_idx
+
+
 def find_relevant_facility(
     selected_truck: Dict[str, Any],
     facilities_data: List[Dict[str, Any]],
@@ -287,6 +350,7 @@ def build_legend_html(is_post_analysis: bool = False) -> str:
     """
     Generates high-contrast dark operations-center map legend HTML content.
     Pre-analysis state shows Original Route. Post-analysis state shows Original, AI Reroute & Blocked Segment.
+    Explicitly distinguishes Vehicles & Locations, Routes & Hazards.
     """
     reroute_row = (
         """
@@ -318,7 +382,7 @@ def build_legend_html(is_post_analysis: bool = False) -> str:
         font-size: 11px;
         color: #E2E8F0;
         box-shadow: 0 8px 20px rgba(0,0,0,0.7);
-        width: 230px;
+        width: 235px;
         pointer-events: auto;
     ">
         <div style="font-weight: 800; color: #00FFFF; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.4rem; display: flex; align-items: center; justify-content: space-between;">
@@ -329,14 +393,18 @@ def build_legend_html(is_post_analysis: bool = False) -> str:
         </div>
         <hr style="border: 0; border-top: 1px solid #2D3748; margin: 0.4rem 0;"/>
         
-        <div style="font-weight: 700; color: #CBD5E0; font-size: 10px; text-transform: uppercase; margin-bottom: 0.3rem; letter-spacing: 0.05em;">VEHICLES & HUBS</div>
+        <div style="font-weight: 700; color: #CBD5E0; font-size: 10px; text-transform: uppercase; margin-bottom: 0.3rem; letter-spacing: 0.05em;">VEHICLES & LOCATIONS</div>
         <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.3rem;">
             <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #00FFFF; border: 2px solid #FFFFFF; box-shadow: 0 0 8px #00FFFF;"></span>
-            <span style="font-weight: 600; color: #FFFFFF;">Selected Target Vehicle</span>
+            <span style="font-weight: 600; color: #FFFFFF;">Selected Target Vehicle (🚚)</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.3rem;">
+            <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #3182CE; border: 2px solid #FFFFFF; box-shadow: 0 0 6px #3182CE;"></span>
+            <span style="color: #E2E8F0;">Dispatch Origin (📍)</span>
         </div>
         <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem;">
             <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #B794F4; box-shadow: 0 0 6px #B794F4;"></span>
-            <span>Logistics Hub / Cold Storage</span>
+            <span>Destination / Logistics Hub (🏭)</span>
         </div>
 
         <div style="font-weight: 700; color: #CBD5E0; font-size: 10px; text-transform: uppercase; margin-bottom: 0.3rem; letter-spacing: 0.05em;">ROUTES & HAZARDS</div>
@@ -351,7 +419,7 @@ def build_legend_html(is_post_analysis: bool = False) -> str:
         </div>
         <div style="display: flex; align-items: center; gap: 0.6rem;">
             <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 1.5px dashed #FF0055; background: rgba(255,0,85,0.2);"></span>
-            <span>Affected Area Radius</span>
+            <span>Affected Area Radius (⭕)</span>
         </div>
     </div>
     """
@@ -366,10 +434,11 @@ def render_leaflet_map(
 ):
     """
     Renders the SELECTED TRUCK OPERATIONAL MAP using Folium.
-    Phase 6 Requirements:
-    - Filters map strictly to selected_truck_id, its disruption, and its relevant facility.
-    - Pre-Analysis (State 1): Renders 🔵 Original Scheduled Route (Neon Blue) IMMEDIATELY upon selection.
-    - Post-Analysis (State 2): Retains 🔵 Original Route and adds 🟢 AI Recommended Reroute (Neon Green Dashed).
+    Phase 7 Requirements:
+    - Filters map strictly to selected_truck_id, its dispatch origin, its disruption, and its destination facility.
+    - Pre-Analysis: Renders 🔵 Original Scheduled Route (Neon Blue) from Dispatch Origin → Truck Location → Destination.
+    - Post-Analysis: Renders 🟢 AI Recommended Reroute (Neon Green Dashed) via precise local OSRM bypass anchored on original route polyline.
+    - Renders 🔴 Blocked Segment (Neon Red) directly on original route polyline.
     - Leaflet Pane z-index hierarchy guarantees Selected Truck is visible on top of all overlays.
     - Native Leaflet map-local control legend overlay positioned at top-right corner.
     """
@@ -380,7 +449,7 @@ def render_leaflet_map(
 
     selected_truck = truck_by_id.get(selected_truck_id, {})
 
-    # Extract selected truck coordinates
+    # Extract selected truck current location coordinates
     selected_lat = selected_truck.get("lat")
     selected_lng = selected_truck.get("lng")
     if selected_lat is None or selected_lng is None:
@@ -394,7 +463,10 @@ def render_leaflet_map(
     except (ValueError, TypeError):
         selected_coords = None
 
-    center_lat, center_lng = selected_coords if selected_coords else (22.5937, 78.9629)
+    # Resolve Shipment Origin coordinates
+    origin_coords = resolve_origin_coordinates(selected_truck)
+
+    center_lat, center_lng = selected_coords if selected_coords else (origin_coords if origin_coords else (22.5937, 78.9629))
 
     m = folium.Map(
         location=[center_lat, center_lng],
@@ -411,7 +483,46 @@ def render_leaflet_map(
     if selected_coords:
         bounds_points.append(selected_coords)
 
-    # 2. RENDER SELECTED TRUCK MARKER ONLY (No other fleet trucks)
+    # 2. RENDER SHIPMENT DISPATCH ORIGIN MARKER
+    if origin_coords:
+        bounds_points.append(origin_coords)
+        origin_raw = selected_truck.get("origin")
+        origin_name = origin_raw.get("name") if isinstance(origin_raw, dict) else str(origin_raw or "Dispatch Origin")
+
+        origin_group = folium.FeatureGroup(name="Shipment Dispatch Origin")
+
+        # Blue Outer Glow Ring (hazard_marker_pane: z-index 600)
+        folium.CircleMarker(
+            location=origin_coords,
+            radius=10,
+            color="#3182CE",
+            weight=2,
+            fill=True,
+            fill_color="#63B3ED",
+            fill_opacity=0.4,
+            tooltip=f"📍 DISPATCH ORIGIN: {origin_name}",
+            pane="hazard_marker_pane",
+        ).add_to(origin_group)
+
+        # Dispatch Origin Icon Marker
+        popup_html = f"""
+        <div style="font-family: sans-serif; font-size: 12px; width: 200px; color: #1A202C;">
+            <b style="color: #2B6CB0; font-size: 13px;">📍 DISPATCH ORIGIN</b><br/>
+            <b>Location:</b> {origin_name}<br/>
+            <b>Shipment Target:</b> {selected_truck_id}
+        </div>
+        """
+        folium.Marker(
+            location=origin_coords,
+            popup=folium.Popup(popup_html, max_width=240),
+            tooltip=f"📍 ORIGIN — {origin_name}",
+            icon=folium.Icon(color="blue", icon="play", prefix="fa"),
+            pane="hazard_marker_pane",
+        ).add_to(origin_group)
+
+        origin_group.add_to(m)
+
+    # 3. RENDER SELECTED TRUCK MARKER ONLY (No other fleet trucks)
     # Rendered inside 'truck_pane' (z-index 700) to sit above all disruption circles and polylines
     if selected_coords:
         sid = selected_truck.get("shipment_id", "N/A")
@@ -476,7 +587,7 @@ def render_leaflet_map(
 
         fleet_group.add_to(m)
 
-    # 3. RENDER SELECTED TRUCK'S DISRUPTION ONLY (No unrelated disruptions)
+    # 4. RENDER SELECTED TRUCK'S DISRUPTION ONLY
     selected_disruption = disruptions_data.get(selected_truck_id)
     dis_coords: Optional[Tuple[float, float]] = None
 
@@ -550,7 +661,7 @@ def render_leaflet_map(
 
             disruption_group.add_to(m)
 
-    # 4. RENDER RELEVANT FACILITY ONLY (No unrelated facilities)
+    # 5. RENDER RELEVANT FACILITY ONLY
     rel_fac = find_relevant_facility(selected_truck, facilities_data, pipeline_result)
     if rel_fac:
         flat, flng = rel_fac.get("latitude"), rel_fac.get("longitude")
@@ -600,28 +711,41 @@ def render_leaflet_map(
 
             facility_group.add_to(m)
 
-    # 5. STATE 1: PRE-ANALYSIS ORIGINAL ROUTE (Neon Blue) — RENDERS IMMEDIATELY UPON TRUCK SELECTION
-    dest_str = selected_truck.get("destination", "")
+    # 6. STATE 1: PRE-ANALYSIS ORIGINAL ROUTE (Neon Blue) — RENDERS IMMEDIATELY UPON SELECTION
     plan = (pipeline_result.get("plan_data") if pipeline_result else {}) or {}
     action = str(plan.get("action", "")).lower()
     prefer_cold = (action == "transfer_to_storage" or "spoilage" in str(selected_truck.get("cargo_type", "")).lower())
 
-    dest_coords = resolve_destination_coordinates(dest_str, facilities_data, prefer_cold_storage=prefer_cold)
+    dest_coords = resolve_truck_destination_coordinates(selected_truck, facilities_data, prefer_cold_storage=prefer_cold)
     if dest_coords:
         bounds_points.append(dest_coords)
 
-    if selected_coords:
-        # Calculate Original Scheduled Route (Truck Current Pos -> Disruption -> Destination or Direct)
-        if dis_coords and dest_coords:
-            orig_part1 = fetch_osrm_route_geometry(selected_coords, dis_coords)
-            orig_part2 = fetch_osrm_route_geometry(dis_coords, dest_coords)
-            full_orig_route = orig_part1 + orig_part2
-        elif dest_coords:
-            full_orig_route = fetch_osrm_route_geometry(selected_coords, dest_coords)
-        elif dis_coords:
-            full_orig_route = fetch_osrm_route_geometry(selected_coords, dis_coords)
+    start_point = origin_coords if origin_coords else selected_coords
+
+    if start_point:
+        # Calculate Original Scheduled Route from Dispatch Origin → Current Truck Pos → Incident → Destination
+        if origin_coords and selected_coords and (origin_coords != selected_coords):
+            leg1 = fetch_osrm_route_geometry(origin_coords, selected_coords)
+            if dis_coords and dest_coords:
+                leg2 = fetch_osrm_route_geometry(selected_coords, dis_coords)
+                leg3 = fetch_osrm_route_geometry(dis_coords, dest_coords)
+                full_orig_route = leg1 + leg2 + leg3
+            elif dest_coords:
+                leg2 = fetch_osrm_route_geometry(selected_coords, dest_coords)
+                full_orig_route = leg1 + leg2
+            else:
+                full_orig_route = leg1
         else:
-            full_orig_route = []
+            if dis_coords and dest_coords:
+                leg1 = fetch_osrm_route_geometry(selected_coords, dis_coords)
+                leg2 = fetch_osrm_route_geometry(dis_coords, dest_coords)
+                full_orig_route = leg1 + leg2
+            elif dest_coords:
+                full_orig_route = fetch_osrm_route_geometry(selected_coords, dest_coords)
+            elif dis_coords:
+                full_orig_route = fetch_osrm_route_geometry(selected_coords, dis_coords)
+            else:
+                full_orig_route = []
 
         if full_orig_route:
             add_glowing_polyline(
@@ -633,47 +757,63 @@ def render_leaflet_map(
                 pane="route_pane",
             )
 
-    # 6. STATE 2: POST-ANALYSIS REROUTE & BLOCKED SEGMENT ADDITION
+    # 7. STATE 2: POST-ANALYSIS REROUTE & BLOCKED SEGMENT ADDITION
     is_post_analysis = False
     if pipeline_result and selected_coords and selected_truck_id:
         gate = pipeline_result.get("dispatch_output") or {}
 
-        if gate.get("escalate") and plan and dis_coords:
+        if gate.get("escalate") and plan and dis_coords and full_orig_route:
             is_post_analysis = True
 
-            # A. DRAW BLOCKED ROUTE SEGMENT (Neon Red / Hazard Corridor)
-            blocked_start = (dis_coords[0] - 0.12, dis_coords[1] - 0.12)
-            blocked_end = (dis_coords[0] + 0.12, dis_coords[1] + 0.12)
-            blocked_geom = fetch_osrm_route_geometry(blocked_start, blocked_end)
+            # Locate incident along original polyline
+            incident_idx = _find_closest_point_index(full_orig_route, dis_coords)
+            
+            # Anchor local bypass ~15 route points before and after incident
+            bypass_start_idx = max(0, incident_idx - 15)
+            bypass_end_idx = min(len(full_orig_route) - 1, incident_idx + 15)
 
-            folium.PolyLine(
-                blocked_geom,
-                color="#FF0055",
-                weight=14,
-                opacity=0.35,
-                tooltip="🔴 BLOCKED / AFFECTED CORRIDOR",
-                pane="disruption_pane",
-            ).add_to(m)
-            folium.PolyLine(
-                blocked_geom,
-                color="#FF0055",
-                weight=6,
-                opacity=0.90,
-                tooltip="🔴 BLOCKED / AFFECTED CORRIDOR",
-                pane="disruption_pane",
-            ).add_to(m)
+            bypass_start = full_orig_route[bypass_start_idx]
+            bypass_end = full_orig_route[bypass_end_idx]
 
-            # B. DRAW AI RECOMMENDED REROUTE (Multi-layer Glowing Neon Green Dashed alongside Blue Original Route)
-            detour_lat = dis_coords[0] + (0.28 if dis_coords[0] > selected_coords[0] else -0.28)
-            detour_lng = dis_coords[1] + (0.35 if dis_coords[1] > selected_coords[1] else -0.35)
-            detour_waypoint = (detour_lat, detour_lng)
+            # A. DRAW BLOCKED ROUTE SEGMENT (Neon Red / Hazard Corridor) directly on original route
+            blocked_geom = full_orig_route[bypass_start_idx : bypass_end_idx + 1]
+
+            if len(blocked_geom) >= 2:
+                folium.PolyLine(
+                    blocked_geom,
+                    color="#FF0055",
+                    weight=14,
+                    opacity=0.35,
+                    tooltip="🔴 BLOCKED / AFFECTED CORRIDOR",
+                    pane="disruption_pane",
+                ).add_to(m)
+                folium.PolyLine(
+                    blocked_geom,
+                    color="#FF0055",
+                    weight=6,
+                    opacity=0.90,
+                    tooltip="🔴 BLOCKED / AFFECTED CORRIDOR",
+                    pane="disruption_pane",
+                ).add_to(m)
+
+            # B. PRECISE LOCAL REROUTE (Perpendicular local bypass via OSRM)
+            d_lat = bypass_end[0] - bypass_start[0]
+            d_lng = bypass_end[1] - bypass_start[1]
+            seg_len = (d_lat**2 + d_lng**2) ** 0.5
+
+            if seg_len > 0.0001:
+                p_lat = -d_lng / seg_len
+                p_lng = d_lat / seg_len
+                offset_mag = max(0.04, min(0.12, seg_len * 0.35))
+                detour_waypoint = (dis_coords[0] + p_lat * offset_mag, dis_coords[1] + p_lng * offset_mag)
+            else:
+                detour_waypoint = (dis_coords[0] + 0.06, dis_coords[1] + 0.06)
+
             bounds_points.append(detour_waypoint)
 
-            reroute_end = dest_coords if dest_coords else (dis_coords[0] + 0.5, dis_coords[1] + 0.5)
-
-            reroute_part1 = fetch_osrm_route_geometry(selected_coords, detour_waypoint)
-            reroute_part2 = fetch_osrm_route_geometry(detour_waypoint, reroute_end)
-            full_reroute = reroute_part1 + reroute_part2
+            local_bypass = fetch_osrm_route_geometry(tuple(bypass_start), detour_waypoint) + fetch_osrm_route_geometry(detour_waypoint, tuple(bypass_end))
+            
+            full_reroute = full_orig_route[:bypass_start_idx] + local_bypass + full_orig_route[bypass_end_idx + 1:]
 
             add_glowing_polyline(
                 m,
@@ -685,7 +825,7 @@ def render_leaflet_map(
                 pane="route_pane",
             )
 
-    # 7. DYNAMIC AUTO-FRAMING BOUNDS (Strictly scoped to selected truck context)
+    # 8. DYNAMIC AUTO-FRAMING BOUNDS (Strictly scoped to selected truck context)
     if bounds_points and len(bounds_points) >= 2:
         lats = [p[0] for p in bounds_points if p[0] is not None]
         lngs = [p[1] for p in bounds_points if p[1] is not None]
@@ -699,7 +839,7 @@ def render_leaflet_map(
                 [max_lat + lat_margin, max_lng + lng_margin]
             ])
 
-    # 8. NATIVE LEAFLET MAP-LOCAL CONTROL LEGEND OVERLAY (Top-Right)
+    # 9. NATIVE LEAFLET MAP-LOCAL CONTROL LEGEND OVERLAY (Top-Right)
     legend_html = build_legend_html(is_post_analysis=is_post_analysis)
     MapLegendControl(legend_html, position="topright").add_to(m)
 
