@@ -1,0 +1,62 @@
+{
+  "TRK-102": {
+    "truck_id": "TRK-102",
+    "recommended_action": "reroute",
+    "decision": "ACCEPT",
+    "candidate_total_duration": 2.3,
+    "additional_delay": 0.6,
+    "estimated_cost": 2205,
+    "deadline_margin": 3.6,
+    "shelf_life_margin": 15.7,
+    "planner_reasoning": "flood reported near NH-160 near Kalyan, MH with ~2.5h expected disruption. Rerouting via alternate highway adds 0.6h delay (costing INR 2205), staying comfortably within cargo deadline window of 5.9h and shelf-life limit of 18.0h.",
+    "critic_reasoning": "Accepted plan: Candidate total journey duration is 2.3h (0.6h delay overhead), satisfying remaining delivery deadline (8.0h) and remaining cargo shelf life (18h); estimated cost INR 2205 is within threshold."
+  },
+  "TRK-104": {
+    "truck_id": "TRK-104",
+    "recommended_action": "reroute",
+    "decision": "ACCEPT",
+    "candidate_total_duration": 3.9,
+    "additional_delay": 0.9,
+    "estimated_cost": 3439,
+    "deadline_margin": 5.9,
+    "shelf_life_margin": 8.1,
+    "planner_reasoning": "protest reported near NH-48 near Kotputli, RJ with ~5.0h expected disruption. Rerouting via alternate highway adds 0.9h delay (costing INR 3439), staying comfortably within cargo deadline window of 9.8h and shelf-life limit of 12.0h.",
+    "critic_reasoning": "Accepted plan: Candidate total journey duration is 3.9h (0.9h delay overhead), satisfying remaining delivery deadline (8.0h) and remaining cargo shelf life (12h); estimated cost INR 3439 is within threshold."
+  },
+  "TRK-105": {
+    "truck_id": "TRK-105",
+    "recommended_action": "transfer_to_storage",
+    "decision": "ACCEPT",
+    "candidate_total_duration": 19.4,
+    "additional_delay": 4.0,
+    "estimated_cost": 1407,
+    "deadline_margin": 4.7,
+    "shelf_life_margin": 4.6,
+    "planner_reasoning": "breakdown near NH-48 near Thane, MH affects transport of electronics. Diverting cargo to local logistics warehouse ensures operational holding and cargo security (costing INR 1407).",
+    "critic_reasoning": "Accepted plan: Candidate total journey duration is 19.4h (4h delay overhead), satisfying remaining delivery deadline (8.0h) and remaining cargo shelf life (24h); estimated cost INR 1407 is within threshold."
+  },
+  "TRK-107": {
+    "truck_id": "TRK-107",
+    "recommended_action": "no_feasible_action",
+    "decision": "REJECT",
+    "candidate_total_duration": 13.7,
+    "additional_delay": 0.0,
+    "estimated_cost": 0,
+    "deadline_margin": -5.7,
+    "shelf_life_margin": 0.3,
+    "planner_reasoning": "No feasible operational action exists. Baseline remaining travel time (13.7h) already exceeds delivery deadline of 8.0h and remaining shelf life of 14.0h. All evaluated candidate actions (reroute, wait, transfer_to_storage) deterministically violate contractual deadline and/or cargo shelf-life constraints. Escalation required.",
+    "critic_reasoning": "Risk evaluation rejected plan: No feasible operational action satisfies the delivery deadline. The baseline remaining journey requires approximately 13.7 hours while only 8.0 hours remain before the delivery deadline. Reroute, wait, and storage options further increase end-to-end duration and deterministically exceed the delivery deadline and remaining shelf life (14.0h). Escalation required."
+  },
+  "TRK-112": {
+    "truck_id": "TRK-112",
+    "recommended_action": "reroute",
+    "decision": "ACCEPT",
+    "candidate_total_duration": 4.0,
+    "additional_delay": 0.5,
+    "estimated_cost": 3964,
+    "deadline_margin": 21.8,
+    "shelf_life_margin": 20.0,
+    "planner_reasoning": "protest reported near NH-48 near Jaipur entry, RJ with ~3.5h expected disruption. Rerouting via alternate highway adds 0.5h delay (costing INR 3964), staying comfortably within cargo deadline window of 25.8h and shelf-life limit of 24.0h.",
+    "critic_reasoning": "Accepted plan: Candidate total journey duration is 4.0h (0.5h delay overhead), satisfying remaining delivery deadline (8.0h) and remaining cargo shelf life (24h); estimated cost INR 3964 is within threshold."
+  }
+}

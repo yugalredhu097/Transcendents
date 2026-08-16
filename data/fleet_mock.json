@@ -15,14 +15,28 @@
     },
     "cargo_value": 850000,
     "priority": "HIGH",
+    "origin": {
+      "lat": 19.076,
+      "lng": 72.8777,
+      "name": "Mumbai Logistics Hub, MH"
+    },
     "location": {
       "lat": 19.076,
       "lng": 72.877,
       "name": "Mumbai-Pune Expressway, MH"
     },
+    "lat": 19.076,
+    "lng": 72.877,
+    "location_name": "Mumbai-Pune Expressway, MH",
     "destination": "Pune",
+    "destination_location": {
+      "lat": 18.5204,
+      "lng": 73.8567,
+      "name": "Pune Distribution Center, MH"
+    },
     "speed_kmh": 70,
     "stopped_duration_minutes": 0,
+    "stop_duration_minutes": 0,
     "delay_minutes": 0,
     "last_updated": "2026-08-11T10:20:00"
   },
@@ -42,14 +56,28 @@
     },
     "cargo_value": 950000,
     "priority": "CRITICAL",
+    "origin": {
+      "lat": 19.076,
+      "lng": 72.8777,
+      "name": "Mumbai Freight Terminal, MH"
+    },
     "location": {
       "lat": 19.218,
       "lng": 73.102,
       "name": "NH-160 near Kalyan, MH"
     },
+    "lat": 19.218,
+    "lng": 73.102,
+    "location_name": "NH-160 near Kalyan, MH",
     "destination": "Nashik",
+    "destination_location": {
+      "lat": 19.9975,
+      "lng": 73.7898,
+      "name": "Nashik Cold Storage Hub, MH"
+    },
     "speed_kmh": 0,
     "stopped_duration_minutes": 50,
+    "stop_duration_minutes": 50,
     "delay_minutes": 50,
     "last_updated": "2026-08-11T10:05:00"
   },
@@ -69,14 +97,28 @@
     },
     "cargo_value": 350000,
     "priority": "HIGH",
+    "origin": {
+      "lat": 28.6139,
+      "lng": 77.209,
+      "name": "Delhi Inland Depot, DL"
+    },
     "location": {
-      "lat": 28.350,
-      "lng": 76.900,
+      "lat": 28.35,
+      "lng": 76.9,
       "name": "NH-48 near Rewari, HR"
     },
+    "lat": 28.35,
+    "lng": 76.9,
+    "location_name": "NH-48 near Rewari, HR",
     "destination": "Jaipur",
+    "destination_location": {
+      "lat": 26.9124,
+      "lng": 75.7873,
+      "name": "Jaipur Central Freight Hub, RJ"
+    },
     "speed_kmh": 60,
     "stopped_duration_minutes": 0,
+    "stop_duration_minutes": 0,
     "delay_minutes": 0,
     "last_updated": "2026-08-11T10:10:00"
   },
@@ -92,16 +134,67 @@
     "temperature_requirement": null,
     "cargo_value": 1500000,
     "priority": "CRITICAL",
+    "origin": {
+      "lat": 19.076,
+      "lng": 72.8777,
+      "name": "Mumbai Port Terminal, MH"
+    },
     "location": {
       "lat": 19.218,
       "lng": 73.102,
       "name": "NH-48 near Thane, MH"
     },
+    "lat": 19.218,
+    "lng": 73.102,
+    "location_name": "NH-48 near Thane, MH",
     "destination": "Delhi",
+    "destination_location": {
+      "lat": 28.6139,
+      "lng": 77.209,
+      "name": "Delhi Freight Hub, DL"
+    },
     "speed_kmh": 0,
     "stopped_duration_minutes": 45,
+    "stop_duration_minutes": 45,
     "delay_minutes": 45,
     "last_updated": "2026-08-11T09:55:00"
+  },
+  {
+    "truck_id": "TRK-106",
+    "shipment_id": "SHP-106",
+    "cargo_type": "industrial_machinery",
+    "quantity": 10,
+    "unit": "tons",
+    "delivery_deadline": "2026-08-12T18:00:00",
+    "deadline": "2026-08-12T18:00:00",
+    "remaining_shelf_life_hours": 48.0,
+    "temperature_requirement": null,
+    "cargo_value": 2200000,
+    "priority": "MEDIUM",
+    "origin": {
+      "lat": 18.5204,
+      "lng": 73.8567,
+      "name": "Pune Industrial Depot, MH"
+    },
+    "location": {
+      "lat": 17.659,
+      "lng": 75.906,
+      "name": "NH-65 near Solapur, MH"
+    },
+    "lat": 17.659,
+    "lng": 75.906,
+    "location_name": "NH-65 near Solapur, MH",
+    "destination": "Hyderabad",
+    "destination_location": {
+      "lat": 17.385,
+      "lng": 78.4867,
+      "name": "Hyderabad Industrial Park, TS"
+    },
+    "speed_kmh": 55,
+    "stopped_duration_minutes": 0,
+    "stop_duration_minutes": 0,
+    "delay_minutes": 0,
+    "last_updated": "2026-08-11T10:25:00"
   },
   {
     "truck_id": "TRK-107",
@@ -109,9 +202,9 @@
     "cargo_type": "perishable_produce",
     "quantity": 1200,
     "unit": "crates",
-    "delivery_deadline": "2026-08-11T18:00:00",
-    "deadline": "2026-08-11T18:00:00",
-    "remaining_shelf_life_hours": 14.0,
+    "delivery_deadline": "2026-08-12T02:00:00",
+    "deadline": "2026-08-12T02:00:00",
+    "remaining_shelf_life_hours": 16.0,
     "temperature_requirement": {
       "min_c": 2.0,
       "max_c": 8.0,
@@ -119,14 +212,28 @@
     },
     "cargo_value": 450000,
     "priority": "HIGH",
-    "location": {
-      "lat": 26.912,
-      "lng": 75.787,
-      "name": "NH-48 near Jaipur, RJ"
+    "origin": {
+      "lat": 27.6094,
+      "lng": 75.1398,
+      "name": "Sikar Logistics Hub, RJ"
     },
+    "location": {
+      "lat": 27.18,
+      "lng": 75.95,
+      "name": "NH-48 approaching Jaipur, RJ"
+    },
+    "lat": 27.18,
+    "lng": 75.95,
+    "location_name": "NH-48 approaching Jaipur, RJ",
     "destination": "Mumbai",
+    "destination_location": {
+      "lat": 19.076,
+      "lng": 72.8777,
+      "name": "Mumbai Cold Storage Hub, MH"
+    },
     "speed_kmh": 0,
     "stopped_duration_minutes": 45,
+    "stop_duration_minutes": 45,
     "delay_minutes": 45,
     "last_updated": "2026-08-11T10:00:00"
   },
@@ -136,20 +243,34 @@
     "cargo_type": "electronics",
     "quantity": 850,
     "unit": "units",
-    "delivery_deadline": "2026-08-12T12:00:00",
-    "deadline": "2026-08-12T12:00:00",
+    "delivery_deadline": "2026-08-11T16:15:00",
+    "deadline": "2026-08-11T16:15:00",
     "remaining_shelf_life_hours": null,
     "temperature_requirement": null,
     "cargo_value": 1200000,
     "priority": "CRITICAL",
+    "origin": {
+      "lat": 28.6139,
+      "lng": 77.209,
+      "name": "Delhi Cargo Terminal, DL"
+    },
     "location": {
-      "lat": 28.459,
-      "lng": 77.026,
+      "lat": 28.52,
+      "lng": 77.12,
       "name": "NH-48 near Gurugram (Delhi-Jaipur corridor)"
     },
+    "lat": 28.52,
+    "lng": 77.12,
+    "location_name": "NH-48 near Gurugram (Delhi-Jaipur corridor)",
     "destination": "Jaipur",
+    "destination_location": {
+      "lat": 26.9124,
+      "lng": 75.7873,
+      "name": "Jaipur Freight Terminal, RJ"
+    },
     "speed_kmh": 65,
     "stopped_duration_minutes": 0,
+    "stop_duration_minutes": 0,
     "delay_minutes": 0,
     "last_updated": "2026-08-11T10:15:00"
   }

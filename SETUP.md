@@ -1,23 +1,22 @@
-# AI Logistics Incident Commander - Setup Guide
+# LOGISTICS INCIDENT COMMANDER — Setup
 
-This document contains complete, step-by-step setup instructions required to clone, configure, run, and test the **AI Logistics Incident Commander** project locally from scratch.
-
----
-
-## 1. Prerequisites
-
-Before installing the application, ensure the following tools are installed on your system:
-
-- **Python 3.10 or newer**: Required runtime environment for the application backend and Streamlit framework.
-- **Git**: Required for version control and cloning the repository.
-- **Internet Connection**: Required for live API interactions (e.g., Google Gemini API calls and OSRM route queries).
-- **Windows PowerShell / Terminal**: Windows PowerShell command examples are provided throughout this guide (Linux/macOS commands are also included where applicable).
+Complete step-by-step developer setup guide to configure, run, and evaluate the **LOGISTICS INCIDENT COMMANDER** Control Tower application in a clean local environment.
 
 ---
 
-## 2. Clone the Repository
+## Prerequisites
 
-Clone the project repository to your local machine and navigate into the workspace directory:
+Before starting, ensure the following software is installed on your machine:
+
+- **Python 3.10 or newer**: Required Python runtime.
+- **Git**: Required for repository cloning and version control.
+- **Internet Connection**: Required for live Google Gemini API calls and map routing queries.
+
+---
+
+## 1. Clone the Repository
+
+Clone the project repository to your local system and navigate to the project directory:
 
 ```bash
 git clone <repository-url>
@@ -26,9 +25,9 @@ cd Transcendents
 
 ---
 
-## 3. Create a Virtual Environment
+## 2. Create a Virtual Environment
 
-A virtual environment isolates project dependencies, preventing conflicts with global Python packages or system libraries.
+Isolate project dependencies by creating and activating a clean Python virtual environment.
 
 ### Windows (PowerShell)
 
@@ -37,7 +36,13 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-> **Note**: If PowerShell displays a script execution policy error, run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` before activating.
+> **Note**: If PowerShell displays an execution policy restriction, run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` before activating.
+
+### Windows (Command Prompt)
+
+```cmd
+.\.venv\Scripts\activate
+```
 
 ### Linux / macOS
 
@@ -46,134 +51,114 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-> **Note**: The `.venv` directory is intentionally ignored by Git to avoid committing binary executable files.
-
 ---
 
-## 4. Install Project Dependencies
+## 3. Install Dependencies
 
-Install all third-party Python libraries specified in `requirements.txt`:
+Install all required third-party Python packages using the finalized `requirements.txt`:
 
 ```bash
 pip install -r requirements.txt
 ```
 
----
-
-## 5. Configure Environment Variables
-
-The application requires environment variables for external AI services. Create a local `.env` file in the root directory:
-
-```env
-GEMINI_API_KEY=your_api_key_here
-```
-
-### Important Security Rules
-
-- **Never commit `.env` to Git**: The `.env` file contains sensitive credentials and is listed in `.gitignore`.
-- Always verify `.env` remains untracked before staging commits.
+### Final `requirements.txt` Package Manifest
+- `streamlit==1.61.1`: Web dashboard framework.
+- `google-genai==2.17.0`: Official Google Gemini API SDK.
+- `python-dotenv==1.2.2`: Environment configuration manager.
+- `folium==0.19.4`: Interactive leaflet map renderer.
+- `streamlit-folium==0.24.0`: Streamlit folium map integration component.
 
 ---
 
-## 6. Verify the Environment
+## 4. Configure Gemini API Key
 
-Confirm that Python and pip are executing from inside the activated `.venv` virtual environment rather than a global Python installation:
+The application uses Google Gemini API for live multi-agent AI reasoning and risk auditing.
+
+1. Copy the provided environment template `.env.example` to create your local `.env` file:
 
 ```bash
-python --version
-pip --version
+cp .env.example .env
 ```
 
-Verify that the path returned by `pip --version` points to the project's local `.venv` directory.
+2. Open `.env` and configure your valid Gemini API key:
+
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+> **Security Note**: Never commit your local `.env` file or expose your `GEMINI_API_KEY` in source control. The `.env` file is excluded via `.gitignore`.
 
 ---
 
-## 7. Run the Application
+## 5. Run the Application
 
-Launch the Streamlit interactive dashboard:
+Launch the LOGISTICS INCIDENT COMMANDER interactive control tower UI:
 
 ```bash
 streamlit run app.py
 ```
 
-This starts a local web server and opens the application UI in your default browser (typically at `http://localhost:8501`).
+This starts the local Streamlit application server and automatically opens the Command Center UI in your web browser (typically at `http://localhost:8501`).
 
 ---
 
-## 8. Run the Tests
-
-Execute each test suite to verify that agent modules, data contracts, and integration flows are functioning correctly:
-
-```bash
-python test_fleet_monitor.py
-python test_threat_intel.py
-python test_dispatch_gate.py
-python test_incident_planner.py
-python test_risk_critic.py
-```
-
-All test suites should execute cleanly with a 100% pass rate before pushing code or creating a Pull Request.
-
----
-
-## 9. Troubleshooting
-
-### Virtual Environment Not Activated
-- **Symptom**: Packages installed globally or `pip` installs fail due to permissions.
-- **Solution**: Ensure your shell prompt displays `(.venv)`. Re-run activation: `.\.venv\Scripts\Activate.ps1` (Windows) or `source .venv/bin/activate` (Linux/macOS).
-
-### Permission Issues Activating Virtual Environment (Windows)
-- **Symptom**: `File ... cannot be loaded because running scripts is disabled on this system.`
-- **Solution**: Run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` in PowerShell, then activate again.
-
-### `ModuleNotFoundError`
-- **Symptom**: `ModuleNotFoundError: No module named 'streamlit'` (or another package name).
-- **Solution**: Confirm `.venv` is active, then re-run `pip install -r requirements.txt`.
-
-### `"streamlit"` Command Not Found
-- **Symptom**: `streamlit : The term 'streamlit' is not recognized...`
-- **Solution**: Run `python -m streamlit run app.py` or reactivate `.venv` where Streamlit is installed.
-
-### Missing `GEMINI_API_KEY`
-- **Symptom**: LLM API calls fail or return authentication errors.
-- **Solution**: Ensure `.env` exists in the root directory with a valid key: `GEMINI_API_KEY=your_api_key_here`.
-
-### Missing Dependencies in `requirements.txt`
-- **Symptom**: Importing a library fails despite running `pip install -r requirements.txt`.
-- **Solution**: Run `pip install <package_name>` inside `.venv` and append the requirement to `requirements.txt`.
-
----
-
-## 10. Project Structure
+## 6. Project Structure
 
 ```text
 Transcendents/
 │
-├── agents/
-│   ├── fleet_monitor.py
-│   ├── threat_intel.py
-│   ├── dispatch_gate.py
-│   ├── incident_planner.py
-│   └── risk_critic.py
-├── data/
-│   ├── mock_fleet.json
-│   ├── mock_disruptions.json
-│   └── facilities.json
-├── app.py
-├── README.md
-├── SETUP.md
-├── requirements.txt
-├── .env.example
-├── .gitignore
-└── test_*.py
+├── app.py                  # Main application entry point & multi-agent pipeline orchestrator
+├── agents/                 # Autonomous agent implementation modules
+│   ├── fleet_monitor.py    # Disruption & telemetry anomaly detector (Agent 1)
+│   ├── threat_intel.py     # Route threat verification agent (Agent 2)
+│   ├── dispatch_gate.py    # Deterministic escalation gate (Agent 3)
+│   ├── incident_planner.py # AI response plan generator (Agent 4)
+│   └── risk_critic.py      # AI constraint auditor (Agent 5)
+├── services/               # Centralized external API integrations
+│   └── gemini_client.py    # Shared Google Gemini API client wrapper
+├── ui/                     # Control Tower Streamlit UI layout & components
+│   ├── dashboard.py        # 3-Column main command center layout assembly
+│   ├── components.py       # Header, fleet summary counters & telemetry cards
+│   ├── map_view.py         # Leaflet operational control map component
+│   └── agent_trace.py      # Agent decision workspace & human approval tabs
+├── data/                   # Authoritative mock telemetry & disruption datasets
+│   ├── mock_fleet.json     # Primary fleet telemetry dataset
+│   ├── fleet_mock.json    # Fallback fleet telemetry dataset
+│   ├── mock_disruptions.json # Disruption intelligence dataset
+│   └── facilities.json     # Distribution hubs & facilities catalog
+├── requirements.txt        # Python runtime package dependencies
+├── .env.example            # Environment configuration template
+├── SETUP.md                # Developer onboarding setup documentation
+└── README.md               # System overview and architecture guide
 ```
 
 ---
 
-## 11. Notes
+## 7. Runtime Behavior
 
-- **`.venv`**: Intentionally ignored by Git. Do not commit virtual environment files.
-- **`.env`**: Intentionally ignored by Git. Never expose secret keys in source control.
-- **`requirements.txt`**: Must be kept up-to-date and committed whenever dependencies change.
-- **`SETUP.md`**: Should be maintained and updated whenever the project setup or configuration requirements change.
-- All new developers, contributors, and evaluators should follow this guide step-by-step for a seamless local onboarding experience.
+- **Authoritative Mock Telemetry**: Operational status for fleet vehicles is dynamically derived from `data/mock_disruptions.json` and `data/mock_fleet.json`.
+- **AI Reasoning & Deterministic Fallback**: When `GEMINI_API_KEY` is configured, live Gemini LLM models generate candidate response plans and risk critiques. If API requests encounter network or rate-limit issues, built-in deterministic fallback engines guarantee continuous operational stability.
+
+---
+
+## 8. Troubleshooting
+
+### `streamlit` Command Not Found
+- **Cause**: Virtual environment is not activated or packages were installed globally.
+- **Solution**: Activate `.venv` (`.\.venv\Scripts\Activate.ps1` or `.\.venv\Scripts\activate`) and re-run `pip install -r requirements.txt`. Alternatively, run `python -m streamlit run app.py`.
+
+### Gemini Authentication / API Key Error
+- **Cause**: `.env` file is missing or `GEMINI_API_KEY` is unconfigured/invalid.
+- **Solution**: Ensure `.env` exists in the project root directory and contains `GEMINI_API_KEY=your_valid_key`.
+
+### Dependency Installation Error
+- **Cause**: Incompatible Python version or outdated virtual environment.
+- **Solution**: Ensure Python 3.10 or newer is installed. Remove `.venv` and recreate it cleanly before re-running `pip install -r requirements.txt`.
+
+---
+
+## Security
+
+- **Keep Secrets Local**: Never commit `.env` or hardcode API keys into codebase files.
+- **Environment Template**: `.env.example` contains only non-sensitive placeholders.
+- **Version Control**: `.env` and `.venv` are strictly ignored by `.gitignore`.

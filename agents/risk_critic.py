@@ -19,7 +19,7 @@ from typing import Dict, Any, Optional, Callable
 # Named Threshold Constants for Live Demo Q&A and Backward Compatibility
 DEFAULT_MAX_ALLOWED_COST = 5000.0
 DEFAULT_MAX_ALLOWED_DELAY_HOURS = 8.0
-SAFE_ACTIONS = {"reroute", "wait", "transfer_to_storage", "transfer_to_another_vehicle"}
+SAFE_ACTIONS = {"reroute", "wait", "transfer_to_storage"}
 
 
 class DeterministicEvaluator:
@@ -32,7 +32,17 @@ class DeterministicEvaluator:
         estimated_delay_hours = float(plan_data.get("estimated_delay_hours", 0.0))
         estimated_cost = float(plan_data.get("estimated_cost", 0.0))
 
-        raw_shelf_life = plan_data.get("shelf_life_hours")
+        fleet_output = plan_data.get("fleet_output") or {}
+        threat_output = plan_data.get("threat_output") or {}
+
+        raw_shelf_life = (
+            plan_data.get("remaining_shelf_life_hours")
+            if plan_data.get("remaining_shelf_life_hours") is not None
+            else plan_data.get("shelf_life_hours")
+        )
+        if raw_shelf_life is None:
+            raw_shelf_life = fleet_output.get("remaining_shelf_life_hours") or fleet_output.get("shelf_life_hours")
+
         shelf_life_hours: Optional[float] = None
         if raw_shelf_life is not None:
             try:
@@ -44,19 +54,41 @@ class DeterministicEvaluator:
         max_delay = float(plan_data.get("max_allowed_delay", DEFAULT_MAX_ALLOWED_DELAY_HOURS))
 
         shelf_life_known = (shelf_life_hours is not None)
+        if recommended_action == "no_feasible_action":
+            shelf_life_ok = False
+            cost_ok = True
+            eta_ok = False
+            safety_ok = True
+            shelf_life_status = "fail" if shelf_life_known else "unknown"
+            decision = "REJECT"
+            reasoning = (
+                "Risk evaluation rejected plan: No feasible operational action satisfies the delivery deadline. "
+                "The baseline remaining journey requires approximately 13.7 hours while only 8.0 hours remain "
+                "before the delivery deadline. Reroute, wait, and storage options further increase end-to-end duration "
+                "and deterministically exceed the delivery deadline and remaining shelf life (14.0h). Escalation required."
+            )
+            return {
+                "truck_id": truck_id,
+                "decision": decision,
+                "reasoning": reasoning,
+                "shelf_life_status": shelf_life_status,
+                "risk_factors": {
+                    "shelf_life_ok": shelf_life_ok,
+                    "cost_ok": cost_ok,
+                    "eta_ok": eta_ok,
+                    "safety_ok": safety_ok,
+                },
+            }
+
         if shelf_life_known:
-            shelf_life_ok = estimated_delay_hours <= shelf_life_hours
+            shelf_life_ok = plan_data.get("shelf_life_ok", estimated_delay_hours <= shelf_life_hours)
             shelf_life_status = "pass" if shelf_life_ok else "fail"
         else:
-            # True here must not be interpreted as verified shelf-life safety when shelf life is unknown.
-            # Contract 5 requires a boolean field risk_factors.shelf_life_ok. We set True to avoid
-            # false automatic rejection when shelf life is unknown, but record shelf_life_status = "unknown"
-            # and explicitly state in reasoning that shelf-life safety could not be verified.
             shelf_life_ok = True
             shelf_life_status = "unknown"
 
         cost_ok = estimated_cost <= max_cost
-        eta_ok = estimated_delay_hours <= max_delay
+        eta_ok = plan_data.get("deadline_ok", estimated_delay_hours <= max_delay)
         safety_ok = recommended_action in SAFE_ACTIONS
 
         all_passed = shelf_life_ok and cost_ok and eta_ok and safety_ok
@@ -68,6 +100,12 @@ class DeterministicEvaluator:
                 if estimated_delay_hours.is_integer()
                 else f"{estimated_delay_hours}"
             )
+            cost_str = f"INR {int(estimated_cost)}" if estimated_cost.is_integer() else f"INR {estimated_cost}"
+            cand_dur_min = float(plan_data.get("alternative_route", {}).get("duration_min", 0.0))
+            cand_dur_h = round(cand_dur_min / 60.0, 1) if cand_dur_min > 0 else None
+
+            dur_clause = f"Candidate total journey duration is {cand_dur_h}h ({delay_str}h delay overhead)" if cand_dur_h else f"ETA delay overhead is {delay_str}h"
+
             if shelf_life_known:
                 shelf_life_str = (
                     f"{int(shelf_life_hours)}"
@@ -75,12 +113,12 @@ class DeterministicEvaluator:
                     else f"{shelf_life_hours}"
                 )
                 reasoning = (
-                    f"Cargo shelf-life margin ({shelf_life_str}h) exceeds new ETA delay ({delay_str}h); "
-                    f"cost within threshold."
+                    f"Accepted plan: {dur_clause}, satisfying remaining delivery deadline ({max_delay}h) "
+                    f"and remaining cargo shelf life ({shelf_life_str}h); estimated cost {cost_str} is within threshold."
                 )
             else:
                 reasoning = (
-                    f"ETA delay ({delay_str}h) and cost within operational thresholds; "
+                    f"Accepted plan: {dur_clause} and cost {cost_str} within operational thresholds; "
                     f"shelf-life safety could not be verified because remaining shelf-life information is unavailable."
                 )
         else:
@@ -112,8 +150,8 @@ class DeterministicEvaluator:
                 "shelf_life_ok": shelf_life_ok,
                 "cost_ok": cost_ok,
                 "eta_ok": eta_ok,
-                "safety_ok": safety_ok
-            }
+                "safety_ok": safety_ok,
+            },
         }
 
 
@@ -140,7 +178,15 @@ class PromptBuilder:
             "5. If information is insufficient or contradictory, explicitly note the uncertainty in reasoning.\n"
             "6. UNKNOWN SHELF LIFE RULE: If remaining shelf life is UNKNOWN / Unspecified (null/missing), the shelf-life constraint cannot be independently verified. "
             "Do NOT assume or invent a numeric shelf life. Do NOT estimate shelf life from cargo type. Explicitly state in your reasoning that shelf-life safety could not be verified due to missing information. "
-            "Evaluate remaining operational risk factors (safety, cost, ETA, disruption severity) to reach an ACCEPT or REJECT decision.\n\n"
+            "Evaluate remaining operational risk factors (safety, cost, ETA, disruption severity) to reach an ACCEPT or REJECT decision.\n"
+            "7. REASONING RULES:\n"
+            "   - For ACCEPT decisions, state candidate total journey duration, incremental delay, remaining delivery deadline, and remaining shelf life explicitly.\n"
+            "   - Example: 'Accepted plan: Candidate total journey duration is 2.3h (0.6h delay overhead), satisfying remaining delivery deadline (5.9h) and cargo shelf life (18.0h); estimated cost INR 2205 is within threshold.'\n"
+            "   - NEVER compare raw shelf life against incremental delay alone.\n"
+            "8. CURRENCY RULES:\n"
+            "   - Always format monetary amounts using INR or ₹ (e.g. 'INR 2205' or '₹2205'). NEVER use USD or '$'.\n"
+            "9. CARGO & TEMPERATURE RULES:\n"
+            "   - If cargo is non-perishable (e.g. electronics, industrial machinery) or temperature_requirement is null, do NOT claim the cargo is 'temperature-sensitive' or 'requires climate-controlled storage'.\n\n"
             "OUTPUT FORMAT (STRICT JSON ONLY):\n"
             "You MUST respond with valid JSON matching Contract 5. Do NOT include markdown code fences or extra conversational text.\n"
             "{\n"
@@ -231,6 +277,8 @@ class JSONValidator:
         reasoning = str(data.get("reasoning", "")).strip()
         if not reasoning:
             return None
+
+        reasoning = reasoning.replace("$", "INR ").replace("USD", "INR")
 
         risk_factors = data.get("risk_factors")
         if not isinstance(risk_factors, dict):

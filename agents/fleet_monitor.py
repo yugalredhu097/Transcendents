@@ -112,12 +112,31 @@ def detect_disruption(raw_telemetry: Optional[Dict[str, Any]]) -> Dict[str, Any]
 
     # Extract & sanitize core telemetry parameters
     truck_id = _sanitize_string(raw_telemetry.get("truck_id"), DEFAULT_TRUCK_ID)
+    shipment_id = _sanitize_string(raw_telemetry.get("shipment_id"), "UNKNOWN")
     cargo_type = _sanitize_string(raw_telemetry.get("cargo_type"), DEFAULT_CARGO_TYPE)
+    quantity = _sanitize_non_negative_int(raw_telemetry.get("quantity"), 0)
+    unit = _sanitize_string(raw_telemetry.get("unit"), "units")
+    cargo_value = _sanitize_float(raw_telemetry.get("cargo_value"), 0.0)
+    priority = _sanitize_string(raw_telemetry.get("priority"), "MEDIUM")
     destination = _sanitize_string(raw_telemetry.get("destination"), DEFAULT_DESTINATION)
     deadline = _sanitize_string(raw_telemetry.get("deadline", raw_telemetry.get("delivery_deadline")), "")
     last_updated = _sanitize_string(raw_telemetry.get("last_updated", raw_telemetry.get("timestamp")), "")
 
     location = _sanitize_location(raw_telemetry.get("location"), raw_telemetry)
+    origin = raw_telemetry.get("origin")
+    destination_location = raw_telemetry.get("destination_location")
+
+    raw_shelf_life = raw_telemetry.get("remaining_shelf_life_hours")
+    if raw_shelf_life is not None:
+        try:
+            remaining_shelf_life_hours = float(raw_shelf_life)
+        except (ValueError, TypeError):
+            remaining_shelf_life_hours = None
+    else:
+        remaining_shelf_life_hours = None
+
+    temperature_requirement = raw_telemetry.get("temperature_requirement")
+    speed_kmh = _sanitize_float(raw_telemetry.get("speed_kmh"), 0.0)
 
     # Extract & sanitize stop duration
     raw_stop_duration = raw_telemetry.get(
@@ -138,11 +157,25 @@ def detect_disruption(raw_telemetry: Optional[Dict[str, Any]]) -> Dict[str, Any]
 
     return {
         "truck_id": truck_id,
+        "shipment_id": shipment_id,
         "location": location,
-        "cargo_type": cargo_type,
+        "current_location": location,
+        "origin": origin,
         "destination": destination,
+        "destination_location": destination_location,
+        "cargo_type": cargo_type,
+        "quantity": quantity,
+        "unit": unit,
+        "cargo_value": cargo_value,
+        "priority": priority,
+        "remaining_shelf_life_hours": remaining_shelf_life_hours,
+        "temperature_requirement": temperature_requirement,
+        "speed_kmh": speed_kmh,
         "deadline": deadline,
+        "delivery_deadline": deadline,
         "status": status,
         "delay_minutes": delay_minutes,
-        "last_updated": last_updated
+        "stopped_duration_minutes": stop_duration,
+        "last_updated": last_updated,
+        "scenario_timestamp": last_updated,
     }

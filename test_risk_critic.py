@@ -211,7 +211,7 @@ class TestRiskCritic(unittest.TestCase):
         self.assertEqual(out["decision"], "ACCEPT")
         self.assertTrue(out["risk_factors"]["shelf_life_ok"])
         self.assertNotIn("shelf_life_status", out)
-        self.assertIn("margin (6h) exceeds", out["reasoning"])
+        self.assertIn("remaining cargo shelf life (6h)", out["reasoning"])
 
     def test_11_known_unsafe_shelf_life(self):
         """TEST B — KNOWN UNSAFE SHELF LIFE: shelf_life_hours=3, delay=6 -> numeric check fails."""
