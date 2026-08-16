@@ -182,26 +182,45 @@ def render_header():
     )
 
 
+def get_truck_operational_status(truck: Dict[str, Any], disruptions: Dict[str, Any]) -> str:
+    """
+    Returns authoritative operational status category for a single truck:
+    - INCIDENT: disruption_stage == "current"
+    - AT_RISK: disruption_stage == "upcoming"
+    - NORMAL: no current or upcoming disruption associated with the truck
+    """
+    tid = str(truck.get("truck_id", ""))
+    disruptions_map = disruptions if isinstance(disruptions, dict) else {}
+    if isinstance(disruptions, list):
+        disruptions_map = {d["truck_id"]: d for d in disruptions if isinstance(d, dict) and "truck_id" in d}
+
+    disruption_info = disruptions_map.get(tid)
+    if disruption_info and isinstance(disruption_info, dict):
+        stage = str(disruption_info.get("disruption_stage", "")).lower()
+        if stage == "current":
+            return "INCIDENT"
+        elif stage == "upcoming":
+            return "AT_RISK"
+
+    return "NORMAL"
+
+
 def classify_fleet_status(fleet_data: List[Dict[str, Any]], disruptions: Dict[str, Any]) -> Tuple[int, int, int]:
     """
-    Calculates operational fleet counts dynamically:
-    - INCIDENT (Red): Associated with verified active disruption in mock_disruptions.json
-    - AT RISK (Orange): Abnormal stoppage duration (>30 min) or active threat without full blockade
-    - NORMAL (Green): Actively moving along route within limits
+    Calculates operational fleet counts dynamically based on authoritative disruption data:
+    - INCIDENT (Red): Disruption currently affecting the truck (disruption_stage == "current")
+    - AT RISK (Orange): Disruption known/verified & expected to affect route (disruption_stage == "upcoming")
+    - NORMAL (Green): No current or upcoming disruption associated with the truck
     """
     normal_count = 0
     at_risk_count = 0
     incident_count = 0
 
     for truck in fleet_data:
-        tid = str(truck.get("truck_id", ""))
-        status = str(truck.get("status", "")).lower()
-        stopped_min = float(truck.get("stopped_duration_minutes") or truck.get("stop_duration_minutes") or 0)
-        delay_min = float(truck.get("delay_minutes", 0))
-
-        if tid in disruptions:
+        status = get_truck_operational_status(truck, disruptions)
+        if status == "INCIDENT":
             incident_count += 1
-        elif status == "abnormal_stop" or stopped_min > 30 or delay_min > 30:
+        elif status == "AT_RISK":
             at_risk_count += 1
         else:
             normal_count += 1

@@ -14,6 +14,7 @@ from ui.components import (
     render_header,
     render_fleet_summary,
     render_selected_truck_panel,
+    get_truck_operational_status,
 )
 from ui.map_view import render_leaflet_map, load_facilities_data, load_disruptions_data
 from ui.agent_trace import render_agent_decision_trace, render_human_approval_tab
@@ -65,14 +66,13 @@ def render_command_center_dashboard(
         truck_options = {}
         for truck in fleet_data:
             tid = truck.get("truck_id", "UNKNOWN")
-            status = truck.get("status", "normal")
-            delay = truck.get("delay_minutes", 0)
+            status = get_truck_operational_status(truck, disruptions_data)
+            dis_type = disruptions_data.get(tid, {}).get("disruption_type", "")
 
-            if tid in disruptions_data:
-                dis_type = disruptions_data[tid].get("disruption_type", "incident")
+            if status == "INCIDENT":
                 label = f"🔴 {tid} — Incident ({dis_type})"
-            elif status == "abnormal_stop" or delay > 30:
-                label = f"🟠 {tid} — At Risk ({delay}m delay)"
+            elif status == "AT_RISK":
+                label = f"🟠 {tid} — At Risk ({dis_type})"
             else:
                 label = f"🟢 {tid} — Normal Transit"
 

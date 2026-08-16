@@ -206,6 +206,97 @@ class TestUIModifications(unittest.TestCase):
         full_html = "".join(html_calls)
         self.assertIn("UNKNOWN", full_html)
 
+    def test_classify_fleet_status_current_mock_data(self):
+        """Verify dynamic fleet status counters match required semantics for mock data."""
+        from ui.components import classify_fleet_status
+
+        with open(self.mock_fleet_path, "r", encoding="utf-8") as f:
+            fleet = json.load(f)
+
+        disruptions_path = os.path.join(os.path.dirname(__file__), "data", "mock_disruptions.json")
+        with open(disruptions_path, "r", encoding="utf-8") as f:
+            disruptions = json.load(f)
+
+        normal, at_risk, incident = classify_fleet_status(fleet, disruptions)
+        self.assertEqual(normal, 2, "Expected NORMAL count of 2")
+        self.assertEqual(at_risk, 2, "Expected AT RISK count of 2")
+        self.assertEqual(incident, 3, "Expected INCIDENT count of 3")
+
+        # Per-truck status verification
+        for truck in fleet:
+            tid = truck["truck_id"]
+            dis = disruptions.get(tid)
+            stage = dis.get("disruption_stage") if dis else None
+
+            norm_c, risk_c, inc_c = classify_fleet_status([truck], disruptions)
+            if tid in ("TRK-101", "TRK-106"):
+                self.assertEqual((norm_c, risk_c, inc_c), (1, 0, 0), f"{tid} should be NORMAL")
+            elif tid in ("TRK-104", "TRK-112"):
+                self.assertEqual((norm_c, risk_c, inc_c), (0, 1, 0), f"{tid} should be AT RISK")
+            elif tid in ("TRK-102", "TRK-105", "TRK-107"):
+                self.assertEqual((norm_c, risk_c, inc_c), (0, 0, 1), f"{tid} should be INCIDENT")
+
+    def test_classify_fleet_status_dynamic_stage_change(self):
+        """Verify changing disruption_stage from upcoming to current dynamically shifts counter from AT RISK to INCIDENT."""
+        from ui.components import classify_fleet_status
+
+        with open(self.mock_fleet_path, "r", encoding="utf-8") as f:
+            fleet = json.load(f)
+
+        disruptions_path = os.path.join(os.path.dirname(__file__), "data", "mock_disruptions.json")
+        with open(disruptions_path, "r", encoding="utf-8") as f:
+            disruptions = json.load(f)
+
+        # Mutate TRK-104 from upcoming to current
+        modified_disruptions = json.loads(json.dumps(disruptions))
+        modified_disruptions["TRK-104"]["disruption_stage"] = "current"
+
+        normal, at_risk, incident = classify_fleet_status(fleet, modified_disruptions)
+        self.assertEqual(normal, 2)
+        self.assertEqual(at_risk, 1)
+        self.assertEqual(incident, 4)
+
+    def test_dropdown_labels_with_get_truck_operational_status(self):
+        """Verify dropdown labels generated using get_truck_operational_status match expected status and disruption types."""
+        from ui.components import get_truck_operational_status
+
+        with open(self.mock_fleet_path, "r", encoding="utf-8") as f:
+            fleet = json.load(f)
+
+        disruptions_path = os.path.join(os.path.dirname(__file__), "data", "mock_disruptions.json")
+        with open(disruptions_path, "r", encoding="utf-8") as f:
+            disruptions = json.load(f)
+
+        expected_labels = {
+            "TRK-101": "🟢 TRK-101 — Normal Transit",
+            "TRK-102": "🔴 TRK-102 — Incident (flood)",
+            "TRK-104": "🟠 TRK-104 — At Risk (protest)",
+            "TRK-105": "🔴 TRK-105 — Incident (breakdown)",
+            "TRK-106": "🟢 TRK-106 — Normal Transit",
+            "TRK-107": "🔴 TRK-107 — Incident (landslide)",
+            "TRK-112": "🟠 TRK-112 — At Risk (protest)",
+        }
+
+        at_risk_count = 0
+        for truck in fleet:
+            tid = truck["truck_id"]
+            status = get_truck_operational_status(truck, disruptions)
+            dis_type = disruptions.get(tid, {}).get("disruption_type", "")
+
+            if status == "INCIDENT":
+                label = f"🔴 {tid} — Incident ({dis_type})"
+            elif status == "AT_RISK":
+                label = f"🟠 {tid} — At Risk ({dis_type})"
+                at_risk_count += 1
+            else:
+                label = f"🟢 {tid} — Normal Transit"
+
+            self.assertEqual(label, expected_labels[tid], f"Mismatch for {tid}")
+
+        self.assertEqual(at_risk_count, 2, "Expected exactly 2 orange At Risk trucks in dropdown")
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
