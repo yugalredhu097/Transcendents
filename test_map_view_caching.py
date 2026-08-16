@@ -155,7 +155,9 @@ class TestMapViewPhase6(unittest.TestCase):
         self.assertFalse(isValid)
 
     @patch("ui.map_view.st_folium")
-    def test_render_post_analysis_trk107_and_trk112(self, mock_st_folium):
+    @patch("ui.map_view.fetch_osrm_route_geometry")
+    def test_render_post_analysis_trk107_and_trk112(self, mock_fetch_osrm, mock_st_folium):
+        mock_fetch_osrm.side_effect = lambda s, e, timeout=2.0: [[s[0], s[1]], [e[0], e[1]]]
         fleet_data = [
             {
                 "truck_id": "TRK-107",
@@ -189,7 +191,7 @@ class TestMapViewPhase6(unittest.TestCase):
         ]
         pipeline_result = {
             "dispatch_output": {"escalate": True},
-            "plan_data": {"action": "reroute", "new_route": "Bypass NH48"},
+            "plan_data": {"recommended_action": "reroute", "new_route": "Bypass NH48"},
         }
 
         render_leaflet_map(
