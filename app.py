@@ -66,8 +66,18 @@ def run_pipeline(selected_truck: Dict[str, Any]) -> Dict[str, Any]:
         threat_info = dispatch_output.get("threat_output") or {}
 
         plan_data = generate_plan(dispatch_output)
+        plan_data["fleet_output"] = fleet_info
+        plan_data["threat_output"] = threat_info
         plan_data.setdefault("cargo_type", fleet_info.get("cargo_type"))
         plan_data.setdefault("disruption_type", threat_info.get("disruption_type"))
+        plan_data.setdefault("remaining_shelf_life_hours", fleet_info.get("remaining_shelf_life_hours"))
+        plan_data.setdefault("shelf_life_hours", fleet_info.get("remaining_shelf_life_hours"))
+        plan_data.setdefault("priority", fleet_info.get("priority"))
+        plan_data.setdefault("customer_priority", fleet_info.get("priority"))
+        plan_data.setdefault("cargo_value", fleet_info.get("cargo_value"))
+        plan_data.setdefault("delivery_deadline", fleet_info.get("delivery_deadline"))
+        plan_data.setdefault("disruption_location", threat_info.get("location") or threat_info.get("disruption_location"))
+        plan_data.setdefault("severity", threat_info.get("severity"))
 
         risk_output = evaluate_risk(plan_data)
 
@@ -93,8 +103,18 @@ def run_pipeline(selected_truck: Dict[str, Any]) -> Dict[str, Any]:
             replan_dispatch["fleet_output"] = fleet_copy
 
             plan_data = generate_plan(replan_dispatch)
+            plan_data["fleet_output"] = fleet_copy
+            plan_data["threat_output"] = threat_copy
             plan_data.setdefault("cargo_type", fleet_info.get("cargo_type"))
             plan_data.setdefault("disruption_type", threat_info.get("disruption_type"))
+            plan_data.setdefault("remaining_shelf_life_hours", fleet_info.get("remaining_shelf_life_hours"))
+            plan_data.setdefault("shelf_life_hours", fleet_info.get("remaining_shelf_life_hours"))
+            plan_data.setdefault("priority", fleet_info.get("priority"))
+            plan_data.setdefault("customer_priority", fleet_info.get("priority"))
+            plan_data.setdefault("cargo_value", fleet_info.get("cargo_value"))
+            plan_data.setdefault("delivery_deadline", fleet_info.get("delivery_deadline"))
+            plan_data.setdefault("disruption_location", threat_info.get("location") or threat_info.get("disruption_location"))
+            plan_data.setdefault("severity", threat_info.get("severity"))
 
             risk_output = evaluate_risk(plan_data)
 

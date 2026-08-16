@@ -148,6 +148,22 @@ class ContractValidator:
         except (ValueError, TypeError):
             delay_hours = 0.0
 
+        disruption_location = raw_payload.get("location") or raw_payload.get("disruption_location")
+        if not disruption_location:
+            mock_disruptions = EvidenceCollector.load_mock_disruptions()
+            if truck_id in mock_disruptions:
+                mock_item = mock_disruptions[truck_id]
+                disruption_location = mock_item.get("location") or mock_item.get("disruption_location")
+
+        mock_disruptions = EvidenceCollector.load_mock_disruptions()
+        auth_item = mock_disruptions.get(truck_id, {})
+        auth_disruption = {
+            "type": auth_item.get("disruption_type") or disruption_type,
+            "severity": auth_item.get("severity") or severity,
+            "predicted_delay": float(auth_item.get("predicted_delay_hours") or delay_hours),
+            "location": auth_item.get("location") or disruption_location,
+        }
+
         return {
             "truck_id": str(raw_payload.get("truck_id") or truck_id),
             "disruption_type": disruption_type,
@@ -157,10 +173,17 @@ class ContractValidator:
             "verified": bool(raw_payload.get("verified", True)),
             "disruption_stage": stage,
             "predicted_delay_hours": delay_hours,
+            "predicted_disruption_delay": delay_hours,
             "start_time": str(raw_payload.get("start_time", "")),
             "expected_end_time": str(raw_payload.get("expected_end_time", "")),
             "affected_corridor": str(raw_payload.get("affected_corridor", "none")),
             "severity": severity,
+            "location": disruption_location,
+            "disruption_location": disruption_location,
+            "source_disruption_type": auth_disruption["type"],
+            "source_severity": auth_disruption["severity"],
+            "source_predicted_delay": auth_disruption["predicted_delay"],
+            "authoritative_disruption": auth_disruption,
         }
 
 
