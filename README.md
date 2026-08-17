@@ -112,26 +112,6 @@ A concrete incident walkthrough follows eight discrete steps from detection to a
 
 ---
 
-## 📊 Operational Scenarios
-
-The system evaluates real-world logistics challenges using authoritative test scenarios present in the repository:
-
-| Vehicle ID | Disruption Type | Location / Corridor | Operational Outcome | Decision Status |
-|---|---|---|---|---|
-| **TRK-102** | Flood | NH-160 near Kalyan, MH | **`reroute`** around waterlogged corridor via alternate highway | `ACCEPT` |
-| **TRK-104** | Protest | NH-48 near Kotputli, RJ | **`reroute`** proactively around upcoming protest location | `ACCEPT` |
-| **TRK-105** | Vehicle Breakdown | NH-48 near Thane, MH | **`transfer_to_storage`** cargo diverted to nearby logistics hub | `ACCEPT` |
-| **TRK-107** | Landslide | NH-48 near Jaipur, RJ | **`no_feasible_action`** (baseline travel time exceeds deadline) | `REJECT` / Escalated |
-| **TRK-112** | Protest | NH-48 near Jaipur Entry, RJ | **`reroute`** via alternate entry route avoiding farmer rally | `ACCEPT` |
-
-### Key Operational Behaviors
-
-- **Proactive & Reactive Rerouting**: Reroutes vehicles around both active flooding (TRK-102) and upcoming protests (TRK-104, TRK-112).
-- **Facility-Aware Offloading**: Diverts breakdown vehicles (TRK-105) carrying sensitive electronics to verified regional storage warehouses.
-- **Deterministic Constraint Protection**: Correctly identifies when no operational action satisfies delivery deadlines (TRK-107) and rejects infeasible plans.
-
----
-
 ## 🧠 Engineering Highlights
 
 - **Structured Agent Contracts**: Well-defined JSON inputs and outputs passed across all pipeline stages for predictable inter-agent communication.
